@@ -7,6 +7,7 @@
   python scripts/finalize.py record [--skill <name>] [--status success|partial|failed]
                                     [--summary "<一句话摘要>"] [--handoff]
   python scripts/finalize.py hook     # Stop hook 兜底：无实质性信号时跳过
+  python scripts/finalize.py mark     # 运行时写操作标记，供 hook 兜底消费
   python scripts/finalize.py snapshot   # 读 git status/diff，判定状态，输出 JSON
 
 输出：
@@ -29,8 +30,11 @@ from pathlib import Path
 
 # 项目根 = 本文件的上两级（scripts/ 的父目录）
 ROOT = Path(__file__).resolve().parent.parent
+WORKSPACE_DIR = ROOT / "workspace"
 DAILY_DIR = ROOT / "workspace" / "daily"
 RESUME_DIR = ROOT / "workspace" / "resume"
+ACTIVITY_FILE = WORKSPACE_DIR / ".finalize-activity.json"
+LAST_RECORD_FILE = WORKSPACE_DIR / ".finalize-last-record.json"
 
 
 def _run_git(args: list[str]) -> str | None:
@@ -70,6 +74,55 @@ def git_snapshot() -> dict:
         "diffstat": stat,
         "status_guess": status_guess,
     }
+
+
+def _read_json_file(path: Path) -> dict:
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
+def _write_json_file(path: Path, data: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def mark_activity(skill: str, status: str, summary: str, source: str) -> None:
+    _write_json_file(ACTIVITY_FILE, {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "skill": skill,
+        "status": status,
+        "summary": summary.strip(),
+        "source": source,
+    })
+
+
+def clear_activity() -> None:
+    try:
+        ACTIVITY_FILE.unlink()
+    except FileNotFoundError:
+        pass
+
+
+def mark_recorded(path: Path) -> None:
+    _write_json_file(LAST_RECORD_FILE, {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "session": str(path.relative_to(ROOT)),
+    })
+
+
+def recently_recorded(seconds: int = 300) -> bool:
+    data = _read_json_file(LAST_RECORD_FILE)
+    ts = data.get("timestamp")
+    if not ts:
+        return False
+    try:
+        when = datetime.fromisoformat(ts)
+    except ValueError:
+        return False
+    age = datetime.now(timezone.utc) - when
+    return 0 <= age.total_seconds() <= seconds
 
 
 def write_session(skill: str, status: str, summary: str, handoff: bool) -> Path:
@@ -128,6 +181,8 @@ def cmd_record(args: argparse.Namespace) -> int:
         summary=args.summary or "",
         handoff=args.handoff,
     )
+    clear_activity()
+    mark_recorded(path)
     rel = path.relative_to(ROOT)
     print(f"[finalize] session 已写入：{rel}")
     return 0
@@ -135,20 +190,41 @@ def cmd_record(args: argparse.Namespace) -> int:
 
 def cmd_hook(args: argparse.Namespace) -> int:
     """Stop hook 兜底入口：只在有明确实质性信号时写入，避免纯问答产生空 session。"""
+    activity = _read_json_file(ACTIVITY_FILE)
+    if recently_recorded() and not activity:
+        print("[finalize] hook skip：最近已显式写入 session")
+        return 0
+
     snap = git_snapshot()
     changed = snap.get("files_changed") or []
-    if not changed:
+    if not changed and not activity:
         print("[finalize] hook skip：未检测到实质性任务信号")
         return 0
 
+    summary = activity.get("summary") or f"Stop hook 自动记录：检测到 {len(changed)} 个 Git 工作区变更。"
+    skill = activity.get("skill") or "none"
+    status = activity.get("status") or "auto"
     path = write_session(
-        skill="none",
-        status="auto",
-        summary=f"Stop hook 自动记录：检测到 {len(changed)} 个 Git 工作区变更。",
+        skill=skill,
+        status=status,
+        summary=summary,
         handoff=False,
     )
+    clear_activity()
+    mark_recorded(path)
     rel = path.relative_to(ROOT)
     print(f"[finalize] hook session 已写入：{rel}")
+    return 0
+
+
+def cmd_mark(args: argparse.Namespace) -> int:
+    mark_activity(
+        skill=args.skill,
+        status=args.status,
+        summary=args.summary,
+        source=args.source,
+    )
+    print(f"[finalize] activity 已标记：{ACTIVITY_FILE.relative_to(ROOT)}")
     return 0
 
 
@@ -175,6 +251,17 @@ def build_parser() -> argparse.ArgumentParser:
 
     hook = sub.add_parser("hook", help="Stop hook 兜底记录；无实质性信号时跳过")
     hook.set_defaults(func=cmd_hook)
+
+    mark = sub.add_parser("mark", help="标记运行时写操作，供 Stop hook 兜底消费")
+    mark.add_argument("--skill", default="none")
+    mark.add_argument(
+        "--status",
+        default="success",
+        choices=["success", "partial", "failed"],
+    )
+    mark.add_argument("--summary", required=True)
+    mark.add_argument("--source", default="manual")
+    mark.set_defaults(func=cmd_mark)
 
     snap = sub.add_parser("snapshot", help="输出 git 状态 JSON")
     snap.set_defaults(func=cmd_snapshot)

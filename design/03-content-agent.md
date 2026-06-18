@@ -205,6 +205,8 @@ KB 域：
 
 **写门禁**：`kb ingest`、`kb index`、`kb gc`、`media assemble`、`publish package` 必须带 `--allow-write` 参数，否则只做 dry-run 并提示。
 `kb search` 默认会写 `search-log.jsonl` 和 `last_hit_at`，用于自学习与清理；严格只读时加 `--no-log --no-touch`。
+写操作会标记 `workspace/.finalize-activity.json`，供 Stop hook 兜底记录 ignored 运行产物。
+`kb ingest` 若任一文件失败返回非 0；需要容忍部分失败时由调用方显式处理。
 
 ---
 
@@ -233,6 +235,7 @@ Step 4  生成文案
   - 命中素材摘要（caption + 书名 + 核心内容）
   输出：平台格式文案 + plan.json（素材组装方案）
   （prompt 模板见下文「平台文案 Prompt 模板」）
+  当前实现：由 AI 运行时 inline 生成；`content_runtime.py` 暂未提供 `text draft` / `plan build` 命令。
 
 Step 5  组装
   python content_runtime.py media assemble \
@@ -354,7 +357,8 @@ outputs/YYYY-MM-DD/content/<slug>/
 │   ├── cover.jpg             ← 封面（1:1 或 3:4）
 │   ├── img_01.jpg            ← 配图 1
 │   ├── img_02.jpg            ← 配图 2
-│   └── publish-checklist.md  ← 发布清单（标题+正文+标签+配图顺序）
+│   ├── clips/                ← 短视频素材（如有）
+│   └── publish-checklist.md  ← 发布清单（标题+正文+标签+素材顺序）
 └── moments/
     ├── img_01.jpg
     └── publish-checklist.md  ← 文案+配图
@@ -374,9 +378,10 @@ outputs/YYYY-MM-DD/content/<slug>/
 ## 正文
 [正文全文]
 
-## 配图顺序
+## 素材顺序
 1. cover.jpg — [描述]
 2. img_01.jpg — [描述]
+3. clips/clip_00.mp4 — [描述]
 
 ## 话题标签
 #数学思维 #图书推荐 #亲子教育
@@ -413,7 +418,7 @@ outputs/YYYY-MM-DD/content/<slug>/
 python content_runtime.py kb gc --older-than 180d --dry-run
 
 # 输出示例：
-# 待归档：47 条（last_hit_at < 2025-12-17）
+# 待归档：47 条（last_hit_at 或无命中时 ingest_at < 2025-12-17）
 # 待删除（已归档 90 天）：12 条
 # 预计释放：2.3 GB
 
@@ -422,7 +427,7 @@ python content_runtime.py kb gc --older-than 180d --allow-write
 ```
 
 清理策略：
-1. `last_hit_at < 180天前` → status 改为 `archived`，不删物理文件
+1. `last_hit_at < 180天前`；或从未命中且 `ingest_at < 180天前` → status 改为 `archived`，不删物理文件
 2. `status=archived 且 archived_at < 90天前` → 删 media-store 副本（不删用户原始文件夹），LanceDB `items` 表 status 改 `deleted`
 3. 从 LanceDB `items` 表 `delete` 该记录（向量随行删除）
 4. 不清理 `status=active` 的条目，不动 `workspace/media-inbox/`（用户放置的待 ingest 文件）

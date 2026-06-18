@@ -6,7 +6,7 @@
   + jieba 分词中文 FTS + RRF hybrid 融合 + BAAI/bge-reranker-base 精排。
 
 用法：
-  python content_runtime.py init                                   建库（LanceDB 表 + FTS index）
+  python content_runtime.py init                                   建库（LanceDB 表；FTS 在 ingest/index 时建）
   python content_runtime.py kb ingest  --src <folder> [--modality auto|doc|image|video]
                                         [--limit N] [--resume] --allow-write
   python content_runtime.py kb search  --query "<text>" [--modality doc|image|video|all]
@@ -43,6 +43,7 @@ MEDIA_STORE = ROOT / "workspace" / "media-store"
 SEARCH_LOG = KB_DIR / "search-log.jsonl"
 CAPTION_CACHE = KB_DIR / "caption-cache.json"
 RUNS_DIR = ROOT / "runs" / "content-runtime"
+ACTIVITY_FILE = ROOT / "workspace" / ".finalize-activity.json"
 
 # 模型（见 04-knowledge-base.md §2）
 EMBED_MODEL = os.environ.get("EMBED_MODEL", "BAAI/bge-small-zh-v1.5")
@@ -85,6 +86,28 @@ def log_run(msg: str) -> None:
     (RUNS_DIR / f"{datetime.now().strftime('%Y-%m-%d')}.log").open("a", encoding="utf-8").write(
         f"{now_iso()} {msg}\n"
     )
+
+
+def mark_runtime_activity(summary: str, status: str = "success") -> None:
+    """标记运行态写操作，供 finalize hook 在 ignored 目录变更时兜底记录。"""
+    ACTIVITY_FILE.parent.mkdir(parents=True, exist_ok=True)
+    ACTIVITY_FILE.write_text(
+        json.dumps({
+            "timestamp": now_iso(),
+            "skill": "content-generate",
+            "status": status,
+            "summary": summary,
+            "source": "content-runtime",
+        }, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
+
+def display_path(path: Path) -> str:
+    try:
+        return str(path.relative_to(ROOT))
+    except ValueError:
+        return str(path)
 
 
 # ─────────────────────────── 标识 / 哈希 ───────────────────────────
@@ -491,7 +514,7 @@ def cmd_ingest(args) -> int:
 
     init_db()
     tbl = get_items_table()
-    done = skipped = 0
+    done = skipped = failed = 0
     for p in files:
         modality = detect_modality(p)
         if args.resume and already_ingested(tbl, file_hash(p)):
@@ -509,13 +532,17 @@ def cmd_ingest(args) -> int:
             log_run(f"ingest ok [{modality}] {p} (+{len(rows)})")
             print(f"  ✓ [{modality}] {p.name} (+{len(rows)})")
         except Exception as e:  # noqa: BLE001
+            failed += 1
             log_run(f"ingest FAIL {p}: {e}")
             print(f"  ✗ [{modality}] {p.name}: {e}")
     # 重建 FTS index + graph edges
     _rebuild_fts(tbl)
     _rebuild_graph(tbl)
-    print(f"[ingest] 完成：{done} 成功 / {skipped} 跳过 / 共 {len(files)}（FTS+graph 已重建）")
-    return 0
+    summary = f"KB ingest：{done} 成功 / {skipped} 跳过 / {failed} 失败 / 共 {len(files)}（FTS+graph 已重建）"
+    status = "failed" if failed and not done else ("partial" if failed else "success")
+    mark_runtime_activity(summary, status=status)
+    print(f"[ingest] 完成：{done} 成功 / {skipped} 跳过 / {failed} 失败 / 共 {len(files)}（FTS+graph 已重建）")
+    return 1 if failed else 0
 
 
 # ─────────────────────────── search（hybrid + rerank） ───────────────────────────
@@ -767,11 +794,16 @@ def cmd_index(args) -> int:
         upsert_items(tbl, upd)
         _rebuild_fts(tbl)
         print(f"  ✓ vector 重建完成（{len(upd)} 条）")
+    mark_runtime_activity(f"KB index：重建 {target} 索引")
     return 0
 
 
 def _parse_days(s: str) -> int:
     return int(s[:-1]) if s.endswith("d") else int(s)
+
+
+def _older_than(value: str | None, cutoff: str) -> bool:
+    return bool(value) and value < cutoff
 
 
 def cmd_gc(args) -> int:
@@ -784,12 +816,18 @@ def cmd_gc(args) -> int:
     archive_cutoff = (datetime.now(timezone.utc) - timedelta(days=90)).isoformat()
 
     all_rows = tbl.search().limit(1000000).to_list()
-    to_archive = [r for r in all_rows if r.get("status") == "active"
-                  and (not r.get("last_hit_at") or r["last_hit_at"] < cutoff)]
+    to_archive = [
+        r for r in all_rows
+        if r.get("status") == "active"
+        and (
+            _older_than(r.get("last_hit_at"), cutoff)
+            or (not r.get("last_hit_at") and _older_than(r.get("ingest_at"), cutoff))
+        )
+    ]
     to_delete = [r for r in all_rows if r.get("status") == "archived"
                  and (r.get("archived_at") or "") < archive_cutoff]
 
-    print(f"待归档：{len(to_archive)} 条（last_hit_at < {cutoff[:10]}）")
+    print(f"待归档：{len(to_archive)} 条（last_hit_at 或无命中时 ingest_at < {cutoff[:10]}）")
     print(f"待删除（归档满 90 天）：{len(to_delete)} 条")
 
     if args.dry_run or not args.allow_write:
@@ -806,6 +844,7 @@ def cmd_gc(args) -> int:
         tbl.delete(f"id = '{r['id']}'")
     if to_archive or to_delete:
         _rebuild_graph(tbl)   # 图谱依 active items 重建，剔除已归档/删除项
+    mark_runtime_activity(f"KB gc：归档 {len(to_archive)} / 删除 {len(to_delete)}")
     print(f"[gc] 已归档 {len(to_archive)} / 删除 {len(to_delete)}")
     return 0
 
@@ -881,6 +920,7 @@ def cmd_assemble(args) -> int:
             "tags": plan.get("tags", []), "body_text": plan.get("body_text", ""),
             "sources": [{"out": o, "from": Path(s).name} for o, s in sources]}
     (out_dir / "_meta.json").write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
+    mark_runtime_activity(f"媒体组装：生成 {len(sources)} 个素材到 {display_path(out_dir)}")
     print(f"[assemble] 已生成 {len(sources)} 个素材到 {out_dir}")
     return 0
 
@@ -913,13 +953,21 @@ def cmd_package(args) -> int:
     out_dir.mkdir(parents=True, exist_ok=True)
     spec_sz = PLATFORM_SPEC.get(platform, PLATFORM_SPEC["xiaohongshu"])
     imgs = sorted(in_dir.glob("*.jpg"))
+    clips = sorted((in_dir / "clips").glob("*.mp4"))
     order = []
     for p in imgs[: spec_sz["max_images"]]:
         size = spec_sz["cover"] if p.name == "cover.jpg" else spec_sz["image"]
         _resize_image(p, size, None, out_dir / p.name)
         order.append(p.name)
+    if clips:
+        clips_out = out_dir / "clips"
+        clips_out.mkdir(exist_ok=True)
+        for p in clips:
+            shutil.copy2(p, clips_out / p.name)
+            order.append(f"clips/{p.name}")
     (out_dir / "publish-checklist.md").write_text(_build_checklist(platform, meta, order), encoding="utf-8")
-    print(f"[package] {platform} 成品包就绪：{out_dir}（{len(order)} 图 + publish-checklist.md）")
+    mark_runtime_activity(f"发布打包：{platform} 成品包到 {display_path(out_dir)}（{len(order)} 个素材）")
+    print(f"[package] {platform} 成品包就绪：{out_dir}（{len(order)} 个素材 + publish-checklist.md）")
     return 0
 
 
@@ -932,7 +980,7 @@ def _build_checklist(platform: str, meta: dict, order: list[str]) -> str:
     lines = [f"# 发布清单 - {title}", "", f"## 平台\n{pname}", ""]
     if platform == "xiaohongshu":
         lines += [f"## 标题\n{title}", ""]
-    lines += [f"## 正文\n{body}", "", "## 配图顺序"]
+    lines += [f"## 正文\n{body}", "", "## 素材顺序"]
     for i, name in enumerate(order, 1):
         lines.append(f"{i}. {name}")
     lines.append("")

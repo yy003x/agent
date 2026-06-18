@@ -1,7 +1,7 @@
 # Agent 开发完整设计包
 
-本文件夹是「本地 AI 内容生成 Agent」的**完整开发设计包**。
-AI 工具读取本文件夹后，可在无任何外部上下文的情况下独立完成全部开发。
+本文件夹是「本地 AI 内容生成 Agent」的**开发设计包**。
+AI 工具读取本文件夹后，可理解目标态、当前基线实现和后续补齐路线。
 
 ---
 
@@ -29,6 +29,16 @@ finalize 沉淀（session 记录）
 - 每轮任务结束自动记录 session，定期提炼学习候选，人工确认后晋升规则/skill/memory
 - **本地运行与本地存储**；文案与图片/视频 caption 可调用 Claude / Anthropic API；
   无自动发布，不调用外部发布 API，不使用图片/视频生成模型。
+
+---
+
+## 当前实现状态
+
+截至当前仓库基线：
+- 已实现：入口规则、`content-generate` / `finalize` skill、KB ingest/search/index/gc/related、媒体组装、发布打包、自学习候选生成、scheduler。
+- 已修正：`validate.sh` 拆为 quick/e2e；runtime 写操作会标记 finalize activity；ingest 部分失败返回非 0；GC 使用 `last_hit_at` / `ingest_at` 双时间判断；视频 clips 会进入发布包。
+- 待验证：首次 `content_runtime.py init`、最小 KB ingest/search、端到端内容生成、Stop hook、scheduler 常驻运行。
+- 待补能力：文案/plan 脚本化命令、自学习候选晋升命令、旧 KB 残留清理。
 
 ---
 
@@ -110,9 +120,10 @@ P1–P3 验收需要一个最小素材集。构建时在项目根创建 `test-da
 
 ## 完成定义（Definition of Done）
 
-以下全部通过视为构建完成：
+以下全部通过视为目标态构建完成：
 
-- [ ] `bash scripts/validate.sh` 无错误退出
+- [ ] `bash scripts/validate.sh --quick` 无错误退出
+- [ ] `bash scripts/validate.sh --e2e` 无错误退出（依赖、模型、API key 准备完成后）
 - [ ] 输入 6 类对话，路由分类全部正确（闲聊/问答/搜索/设计/内容生成/执行）
 - [ ] `python skills/content-generate/scripts/content_runtime.py kb ingest --src <test-folder> --limit 3 --allow-write` 成功写入 LanceDB items 表
 - [ ] `python skills/content-generate/scripts/content_runtime.py kb search --query "数学思维" --topk 5` 返回有效结果
@@ -120,6 +131,7 @@ P1–P3 验收需要一个最小素材集。构建时在项目根创建 `test-da
 - [ ] `python scripts/finalize.py record` 在 `workspace/daily/` 生成 session 文件
 - [ ] 显式 `finalize.py record` 可写 session；Stop hook 通过 `finalize.py hook` 做兜底且无实质信号时跳过
 - [ ] `python scripts/agent_learning_review.py` 在 `workspace/agent-learning/` 生成候选文件
+- [ ] 候选 accept/reject/modify 晋升流程可执行，并在晋升后跑 `validate.sh --quick`
 - [ ] `python apps/scheduler/scheduler.py` 启动无错误，jobs 按 jobs.json 注册成功
 
 ---

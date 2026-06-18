@@ -1,9 +1,27 @@
 #!/usr/bin/env bash
 # 启动自检脚本
-# 用法：bash scripts/validate.sh
+# 用法：
+#   bash scripts/validate.sh          # quick：结构 / 语法 / 配置 / CLI
+#   bash scripts/validate.sh --quick
+#   bash scripts/validate.sh --e2e     # quick + 外部依赖 / LanceDB
 # 退出码：0=通过，非0=失败
 
 set -e
+
+MODE="${1:---quick}"
+case "$MODE" in
+  --quick|quick) MODE="quick" ;;
+  --e2e|e2e) MODE="e2e" ;;
+  -h|--help)
+    sed -n '1,8p' "$0"
+    exit 0
+    ;;
+  *)
+    echo "未知参数：$1"
+    echo "用法：bash scripts/validate.sh [--quick|--e2e]"
+    exit 2
+    ;;
+esac
 
 PASS=0
 FAIL=0
@@ -20,18 +38,11 @@ check() {
   fi
 }
 
-echo "=== Agent 启动自检 ==="
+echo "=== Agent 启动自检（${MODE}）==="
 echo ""
 
-echo "[环境依赖]"
+echo "[基础环境]"
 check "Python 3.11+" "python3 -c 'import sys; assert sys.version_info >= (3,11)'"
-check "ffmpeg 可用" "ffmpeg -version"
-check "ANTHROPIC_API_KEY 已设置" "test -n \"\$ANTHROPIC_API_KEY\""
-check "lancedb 已安装" "python3 -c 'import lancedb'"
-check "sentence-transformers 已安装" "python3 -c 'import sentence_transformers'"
-check "jieba 已安装" "python3 -c 'import jieba'"
-check "apscheduler 已安装" "python3 -c 'import apscheduler'"
-check "pillow 已安装" "python3 -c 'import PIL'"
 
 echo ""
 echo "[项目文件]"
@@ -52,6 +63,12 @@ check "content_runtime.py 语法正常" "python3 -m py_compile skills/content-ge
 check "scheduler.py 语法正常" "python3 -m py_compile apps/scheduler/scheduler.py"
 
 echo ""
+echo "[配置格式]"
+check "apps/scheduler/jobs.json 可解析" "python3 -c 'import json; json.load(open(\"apps/scheduler/jobs.json\"))'"
+check ".claude/settings.json 可解析" "python3 -c 'import json; json.load(open(\".claude/settings.json\"))'"
+check "template settings 可解析" "python3 -c 'import json; json.load(open(\"design/templates/config/settings-claude-code.json\"))'"
+
+echo ""
 echo "[工作目录]"
 check "workspace/kb/ 存在" "test -d workspace/kb"
 check "workspace/daily/ 存在" "test -d workspace/daily"
@@ -59,12 +76,27 @@ check "workspace/agent-learning/ 存在" "test -d workspace/agent-learning"
 check "outputs/ 存在" "test -d outputs"
 
 echo ""
-echo "[KB 层]"
-check "LanceDB lance/ 可访问" "python3 -c 'import lancedb; lancedb.connect(\"workspace/kb/lance\")'"
-
-echo ""
 echo "[content-runtime CLI]"
 check "content_runtime.py --help 可执行" "python3 skills/content-generate/scripts/content_runtime.py --help"
+check "content_runtime.py kb search --help 可执行" "python3 skills/content-generate/scripts/content_runtime.py kb search --help"
+check "finalize.py --help 可执行" "python3 scripts/finalize.py --help"
+check "agent_learning_review.py --dry-run 可执行" "python3 scripts/agent_learning_review.py --dry-run"
+
+if [ "$MODE" = "e2e" ]; then
+  echo ""
+  echo "[外部依赖]"
+  check "ffmpeg 可用" "ffmpeg -version"
+  check "ANTHROPIC_API_KEY 已设置" "test -n \"\$ANTHROPIC_API_KEY\""
+  check "lancedb 已安装" "python3 -c 'import lancedb'"
+  check "sentence-transformers 已安装" "python3 -c 'import sentence_transformers'"
+  check "jieba 已安装" "python3 -c 'import jieba'"
+  check "apscheduler 已安装" "python3 -c 'import apscheduler'"
+  check "pillow 已安装" "python3 -c 'import PIL'"
+
+  echo ""
+  echo "[KB 层]"
+  check "LanceDB lance/ 可访问" "python3 -c 'import lancedb; lancedb.connect(\"workspace/kb/lance\")'"
+fi
 
 echo ""
 echo "=== 结果：${PASS} 通过 / ${FAIL} 失败 ==="

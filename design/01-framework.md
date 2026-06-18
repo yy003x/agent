@@ -273,6 +273,7 @@ skill 或写文件任务结束时仍应显式调用 `python scripts/finalize.py 
   python scripts/finalize.py record [--skill <name>] [--status success|partial|failed]
                                     [--summary "<一句话摘要>"] [--handoff]
   python scripts/finalize.py hook     # Stop hook 兜底：无实质性信号时跳过
+  python scripts/finalize.py mark     # 标记 ignored 运行目录写操作，供 hook 消费
   python scripts/finalize.py snapshot   # 读 git status/diff，判定状态，输出 JSON
 
 输出文件：
@@ -302,6 +303,8 @@ status: <success | partial | failed>
 - 摘要由 AI 在执行结束时传入（--summary "..." 参数），或从最后一条 AI 输出提取
 - git diff --stat 用 subprocess 调用，失败时写 "git not available"
 - workspace/daily/YYYY-MM-DD/ 目录不存在时自动创建
+- `mark` 写 `workspace/.finalize-activity.json`；`hook` 优先消费该标记，再看 Git 变更
+- `record` 成功后清理活动标记并写最近记录时间，避免 Stop hook 同轮重复记录
 """
 ```
 

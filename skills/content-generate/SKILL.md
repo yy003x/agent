@@ -13,9 +13,9 @@
 执行前确认以下条件满足，任一不满足则停下告知用户：
 
 - [ ] `workspace/kb/lance/` 存在（运行 `content_runtime.py init` 初始化 LanceDB）
-- [ ] 向量/精排模型可用（bge-small-zh-v1.5 / bge-reranker-base，首次自动下载）
-- [ ] `ANTHROPIC_API_KEY` 已设置（`.env` 文件存在且 key 有效）
-- [ ] `ffmpeg` 可执行（运行 `ffmpeg -version` 验证）
+- [ ] 向量模型可用（bge-small-zh-v1.5；reranker 加载失败时允许降级）
+- [ ] 需要新增图片/视频 caption 或由脚本调用 Claude 时，`ANTHROPIC_API_KEY` 已设置
+- [ ] 形态包含短视频或需要视频 ingest/assemble 时，`ffmpeg` 可执行
 
 ---
 
@@ -84,6 +84,7 @@ python skills/content-generate/scripts/content_runtime.py kb search \
 - 输入：需求描述 + 素材摘要
 - 输出：文案（80-150字）+ 配图建议
 
+当前文案生成由 AI 运行时 inline 完成；`content_runtime.py` 暂未提供 `text draft` 命令。
 展示生成的文案，询问：「文案是否满意？（可要求修改风格/长度/角度后重新生成）」
 等用户确认后继续。
 

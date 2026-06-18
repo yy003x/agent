@@ -71,6 +71,7 @@ system prompt
 rules/core-routing.md       输入分类与路由（唯一事实源）
 rules/core-safety.md        安全边界与写门禁（唯一事实源）
 skills/content-generate/    内容生成 skill
+skills/finalize/            收尾 skill
 scripts/finalize.py         收尾记录
 scripts/agent_learning_review.py  自学习候选生成
 apps/scheduler/             定时任务

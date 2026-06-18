@@ -6,6 +6,8 @@
 - 显式：处理类 skill 或写文件任务结束时，AI 调
   `python scripts/finalize.py record --skill <name> --status <...> --summary "<...>"`
 - 兜底：Stop hook 配置 `python scripts/finalize.py hook`，仅在检测到实质性任务信号时补写，避免漏记或空记。
+- 运行时标记：脚本写入 ignored 运行目录（如 `outputs/` / `workspace/`）后，可用
+  `python scripts/finalize.py mark --summary "<...>"` 标记活动，供 Stop hook 消费。
 
 > 与处理类 skill（content-generate）的区别：处理类由 `rules/core-routing.md` 按输入语义触发；
 > 收尾类在**一轮处理结束后**触发，把「发生了什么」沉淀为 session（自我进化事实源，见 02）。
@@ -47,7 +49,17 @@ python scripts/finalize.py record \
   --summary "<1-3 句摘要>"
 ```
 
-### 步骤 4（可选）：未完成任务留恢复点
+### 步骤 4（可选）：运行时写操作兜底标记
+写入 `outputs/` / `workspace/` 这类 Git ignored 目录、且无法立即显式 `record` 时：
+```bash
+python scripts/finalize.py mark \
+  --skill content-generate \
+  --status success \
+  --summary "<本轮运行时写入摘要>"
+```
+Stop hook 后续会消费该标记并写 session；显式 `record` 会清理该标记，避免重复记录。
+
+### 步骤 5（可选）：未完成任务留恢复点
 任务半途 / 有待续项：加 `--handoff`，额外写 `workspace/resume/`。
 
 ---
@@ -68,5 +80,5 @@ python scripts/finalize.py record \
 
 ## 与脚本的关系
 
-本 skill 是**收尾规程**；`scripts/finalize.py` 是其工具（`record` / `hook` / `snapshot` 三个子命令）。
+本 skill 是**收尾规程**；`scripts/finalize.py` 是其工具（`record` / `hook` / `mark` / `snapshot` 四个子命令）。
 脚本实现规格见 01-framework.md §5；本 skill 不重复实现逻辑，只规定「何时收尾、写什么、怎么调」。

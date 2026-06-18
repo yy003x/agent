@@ -31,7 +31,7 @@ workspace/agent-learning/candidates-YYYY-MM-DD.md
 
         ↓
 
-bash scripts/validate.sh
+bash scripts/validate.sh --quick
 
         ↓ 通过
 
@@ -174,7 +174,7 @@ Session 数：12  KB 搜索记录数：47  候选数：3
 4. 按用户回应处理：
 
    accept  → AI 按「建议内容」修改晋升目标文件
-             → bash scripts/validate.sh
+             → bash scripts/validate.sh --quick
              → 通过：候选状态改为 accepted
              → 失败：回滚，候选状态改为 failed，告知错误
 
@@ -191,7 +191,7 @@ Session 数：12  KB 搜索记录数：47  候选数：3
 **硬约束**：
 - 任何晋升都必须有用户明确 accept，不能自动晋升
 - 一次只处理一条候选，不批量修改
-- 晋升后必须跑 validate.sh，失败则回滚
+- 晋升后必须跑 `validate.sh --quick`，失败则回滚
 - 绝不自动修改 `rules/core-*.md` 中的安全规则
 - 绝不自动删除规则或 skill 步骤
 
@@ -249,6 +249,6 @@ Step 4  生成候选文件
 | 自动晋升（跳过用户确认） | 规则影响 AI 全局行为，必须人工审核 |
 | 自动修改 `core-safety.md` | 安全规则修改风险最高 |
 | 自动删除规则或 skill 步骤 | 删除是不可逆操作 |
-| 跳过 validate.sh 强制晋升 | 晋升后必须验证系统健康 |
+| 跳过 `validate.sh --quick` 强制晋升 | 晋升后必须验证系统健康 |
 | 批量处理多条候选 | 一次一条，减少误操作范围 |
 | 存储原始对话文本 | 只存结构化摘要 |

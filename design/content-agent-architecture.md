@@ -1,6 +1,7 @@
 # 内容生成 Agent 架构概览
 
-> 实现状态：✅ 骨架已构建于**仓库根目录**（AGENTS.md / rules / skills / scripts / apps）；本文为顶层概览。
+> 实现状态：✅ 基线已构建于**仓库根目录**（AGENTS.md / rules / skills / scripts / apps）；
+> 目标态闭环仍需补齐文案/plan 脚本化、自学习晋升命令和端到端验证。
 > design_state：architecture（全部分叉与参数已锁定）。
 > 本文只给「全景 + 锁定决策 + 分阶段路线」，**不重复细节**——分层规格见 `01-04`，可直接复制的产物见 `templates/`。
 
@@ -70,7 +71,7 @@
 | L1 输入路由 | 语义分类 → 处理模式 | `rules/core-routing.md`、03 §路由分类 |
 | L2 处理 skill | content-generate 编排（处理类，router 触发） | `templates/skills/content-generate/SKILL.md`、03 |
 | L3 收尾 skill | finalize 沉淀 session（收尾类，结束规则/Stop hook 转交） | `templates/skills/finalize/SKILL.md`、**01 §5** |
-| L4 自学习 | 候选生成 → 人工晋升 | **02**（自我进化规格，候选 5 类含 kb-tuning） |
+| L4 自学习 | 候选生成已实现；人工晋升流程待命令化 | **02**（自我进化规格，候选 5 类含 kb-tuning） |
 | L5 知识库 | ingest / hybrid search / gc | **04**（知识库层独立设计） |
 | L6 内容组装 | media assemble / publish package | 03 §内容组装规格 |
 
@@ -97,7 +98,8 @@
 验证：端到端出一条短视频（KB 视频片段裁剪拼接；可选字幕烧录；正文文案见 publish-checklist）。
 
 ### P4 调度 + 自学习闭环
-构建：`apps/scheduler/scheduler.py`（APScheduler 读 jobs.json）、`scripts/agent_learning_review.py`、`jobs.json`（weekly_learn / media_ingest / kb_gc，写操作带 `--allow-write`）。
+已实现：`apps/scheduler/scheduler.py`（APScheduler 读 jobs.json）、`scripts/agent_learning_review.py` 候选生成、`jobs.json`（weekly_learn / media_ingest / kb_gc）。
+待补：候选 accept/reject/modify 晋升命令与回滚。
 验证：触发一次 `agent_learning_review.py` 生成候选；人工确认一条并晋升到 rules/。
 
 ---
@@ -111,7 +113,7 @@
 | 输出收尾 | **硬** | 显式 `finalize.py record`；`Stop`/`notify` hook → `finalize.py hook` 兜底 |
 | 媒体 ingest | **硬（定时）** | scheduler job 每天 02:00 后台批处理 |
 | 自学习 | **硬（定时）** | scheduler job 每周一 → `agent_learning_review.py` |
-| 规则晋升 | 半（人确认） | 候选 → 用户 accept → 写 rules/memory |
+| 规则晋升 | 半（人确认） | 设计目标：候选 → 用户 accept → 写 rules/memory；当前待补命令化 |
 
 ---
 
@@ -129,6 +131,6 @@
 - `kb search` 默认写 `search-log.jsonl` 与 `last_hit_at`，用于自学习和清理；严格只读用 `--no-log --no-touch`。
 - 发布门禁：外部平台发布前预览确认，不自动发帖。
 - 敏感信息：API key 存 `.env`（进 `.gitignore`）；不把 media-store 绝对路径写入对外产物。
-- 验证策略：P0 路由回归 + hook 实测；P1-P3 各一个端到端样例 + KB 召回人工回读；P4 完整 learn→候选→晋升→`validate.sh`。
+- 验证策略：P0 路由回归 + hook 实测；P1-P3 各一个端到端样例 + KB 召回人工回读；P4 完整 learn→候选→晋升→`validate.sh --quick`，完整环境验收跑 `validate.sh --e2e`。
 
 > 安全规则唯一事实源：`rules/core-safety.md`；自我进化边界：02。

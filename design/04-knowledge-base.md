@@ -277,7 +277,9 @@ def docs_by_concepts(concept_ids, flt, n):
 - `all`：以上全部
 
 ### `kb gc --older-than 180d [--dry-run]`
-1. `last_hit_at < cutoff` 且 `status=active` → `status=archived`（LanceDB update）
+1. `status=active` 且满足以下任一条件 → `status=archived`（LanceDB update）：
+   - `last_hit_at` 存在且 `< cutoff`
+   - `last_hit_at` 为空，但 `ingest_at < cutoff`
 2. `status=archived` 且 `archived_at < 90 天前` → 删 media-store 副本（不动用户原始文件）+ `status=deleted` + 从表中 `delete`
 3. 不动 `media-inbox/`；`--dry-run` 只统计不写。
 
@@ -308,7 +310,7 @@ def docs_by_concepts(concept_ids, flt, n):
 KB 模块对外**只暴露 `kb` 子命令**，签名不变（写操作仍需 `--allow-write`）：
 
 ```
-content-runtime init                  # 建 LanceDB 库 + 表 + FTS index
+content-runtime init                  # 建 LanceDB 库 + 表；FTS 在 ingest/index 时建
 content-runtime kb ingest   --src <folder> [--modality ...] [--limit N] [--resume] --allow-write
 content-runtime kb search   --query "<text>" [--modality ...] [--topk N] [--json] [--no-log] [--no-touch]
 content-runtime kb index    --rebuild [fts|vector|graph|all] --allow-write

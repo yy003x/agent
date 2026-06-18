@@ -67,4 +67,4 @@
 
 - 任何候选晋升必须有用户明确 accept，不能自动晋升
 - `rules/core-safety.md`（本文件）不得通过候选晋升自动修改
-- 晋升后必须跑 `bash scripts/validate.sh`，失败则回滚
+- 晋升后必须跑 `bash scripts/validate.sh --quick`，失败则回滚
