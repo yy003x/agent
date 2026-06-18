@@ -6,11 +6,12 @@
 用法：
   python scripts/finalize.py record [--skill <name>] [--status success|partial|failed]
                                     [--summary "<一句话摘要>"] [--handoff]
+  python scripts/finalize.py hook     # Stop hook 兜底：无实质性信号时跳过
   python scripts/finalize.py snapshot   # 读 git status/diff，判定状态，输出 JSON
 
 输出：
   workspace/daily/YYYY-MM-DD/session-<8位>.md
-  （--handoff 时额外写 workspace/resume/<8位>.md 未完成任务恢复点）
+  （--handoff 时额外写 workspace/resume/YYYY-MM-DD-<8位>.md 未完成任务恢复点）
 
 设计依据：01-framework.md §5 / content-agent-architecture.md L3。
 本脚本不依赖第三方库，可被 Claude Code Stop hook 直接调用。
@@ -132,6 +133,25 @@ def cmd_record(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_hook(args: argparse.Namespace) -> int:
+    """Stop hook 兜底入口：只在有明确实质性信号时写入，避免纯问答产生空 session。"""
+    snap = git_snapshot()
+    changed = snap.get("files_changed") or []
+    if not changed:
+        print("[finalize] hook skip：未检测到实质性任务信号")
+        return 0
+
+    path = write_session(
+        skill="none",
+        status="auto",
+        summary=f"Stop hook 自动记录：检测到 {len(changed)} 个 Git 工作区变更。",
+        handoff=False,
+    )
+    rel = path.relative_to(ROOT)
+    print(f"[finalize] hook session 已写入：{rel}")
+    return 0
+
+
 def cmd_snapshot(args: argparse.Namespace) -> int:
     print(json.dumps(git_snapshot(), ensure_ascii=False, indent=2))
     return 0
@@ -152,6 +172,9 @@ def build_parser() -> argparse.ArgumentParser:
     rec.add_argument("--summary", default="", help="1-3 句摘要（不写原始对话文本）")
     rec.add_argument("--handoff", action="store_true", help="额外写恢复点到 workspace/resume/")
     rec.set_defaults(func=cmd_record)
+
+    hook = sub.add_parser("hook", help="Stop hook 兜底记录；无实质性信号时跳过")
+    hook.set_defaults(func=cmd_hook)
 
     snap = sub.add_parser("snapshot", help="输出 git 状态 JSON")
     snap.set_defaults(func=cmd_snapshot)

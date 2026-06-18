@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python scripts/finalize.py record"
+            "command": "python scripts/finalize.py hook"
           }
         ]
       }

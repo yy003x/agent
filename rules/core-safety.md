@@ -17,6 +17,10 @@
 
 **没有 `--allow-write` 时**：只做 dry-run，打印将要执行的操作，不实际写入。
 
+`content_runtime.py kb search` 默认会写入低风险运行态记录：
+`workspace/kb/search-log.jsonl` 与命中条目的 `last_hit_at`。这不要求
+`--allow-write`，用于自学习和 KB 清理；需要严格只读时使用 `--no-log --no-touch`。
+
 ---
 
 ## 发布门禁

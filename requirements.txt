@@ -11,6 +11,3 @@ jieba>=0.42                 # 中文分词（FTS 列 text_seg 与查询）
 apscheduler>=3.10           # 定时任务（ingest / learn / gc）
 pillow>=10.0               # 图片 resize / 拼版
 pdfplumber>=0.11            # PDF 文档解析（可选，doc ingest 用）
-
-# 可选：视频字幕（默认后置，不预装也能跑视频抽帧 caption）
-# faster-whisper>=1.0

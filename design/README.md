@@ -27,7 +27,8 @@ finalize 沉淀（session 记录）
 - 日常对话输入，自动分类路由到对应 skill
 - 检索本地知识库（文档/图片/视频），生成教育类图书内容（小红书/朋友圈图文、短视频）
 - 每轮任务结束自动记录 session，定期提炼学习候选，人工确认后晋升规则/skill/memory
-- **全本地，无外部服务，无自动发布，不生成图片/视频**
+- **本地运行与本地存储**；文案与图片/视频 caption 可调用 Claude / Anthropic API；
+  无自动发布，不调用外部发布 API，不使用图片/视频生成模型。
 
 ---
 
@@ -57,10 +58,12 @@ design/
     │   ├── core-routing.md              ← 路由规则（完整内容，直接使用）
     │   └── core-safety.md              ← 安全规则（完整内容，直接使用）
     ├── skills/
-    │   └── content-generate/
-    │       └── SKILL.md                ← content-generate skill（完整内容）
+    │   ├── content-generate/
+    │   │   └── SKILL.md                ← content-generate skill（处理类，完整内容）
+    │   └── finalize/
+    │       └── SKILL.md                ← finalize skill（收尾类，完整内容）
     └── config/
-        ├── settings-claude-code.json   ← Claude Code hook 配置
+        ├── settings-claude-code.json   ← 运行时结束 hook 配置（Stop hook）
         └── validate.sh                 ← 启动自检脚本（需实现）
 ```
 
@@ -78,14 +81,13 @@ design/
 | 操作系统 | macOS（Apple Silicon 或 Intel） |
 | Python | 3.11+ |
 | ffmpeg | `brew install ffmpeg` |
-| Claude API Key | `ANTHROPIC_API_KEY` 写入 `.env` |
-| whisper（可选） | `faster-whisper`，视频字幕用，默认后置 |
+| Claude / Anthropic API Key | `ANTHROPIC_API_KEY` 写入 `.env`，用于文案生成与图片/视频 caption |
 | 向量/精排模型 | BAAI/bge-small-zh-v1.5（向量, 512d）+ BAAI/bge-reranker-base（精排），首次自动下载 |
-| AI 运行时 | Claude Code CLI 或 Codex CLI |
+| AI 运行时 | 支持 AGENTS.md + 结束 hook + skill/rules 机制的 Agent CLI |
 
 Python 包依赖（`pip install`）：
 ```
-anthropic lancedb sentence-transformers jieba apscheduler pillow pdfplumber faster-whisper
+anthropic lancedb sentence-transformers jieba apscheduler pillow pdfplumber
 ```
 
 ---
@@ -116,7 +118,7 @@ P1–P3 验收需要一个最小素材集。构建时在项目根创建 `test-da
 - [ ] `python skills/content-generate/scripts/content_runtime.py kb search --query "数学思维" --topk 5` 返回有效结果
 - [ ] 完整走一次内容生成流程（需求→检索→文案→成品包→预览确认）
 - [ ] `python scripts/finalize.py record` 在 `workspace/daily/` 生成 session 文件
-- [ ] Stop hook 触发后 finalize 自动执行（Claude Code）
+- [ ] 显式 `finalize.py record` 可写 session；Stop hook 通过 `finalize.py hook` 做兜底且无实质信号时跳过
 - [ ] `python scripts/agent_learning_review.py` 在 `workspace/agent-learning/` 生成候选文件
 - [ ] `python apps/scheduler/scheduler.py` 启动无错误，jobs 按 jobs.json 注册成功
 
@@ -133,12 +135,14 @@ P1–P3 验收需要一个最小素材集。构建时在项目根创建 `test-da
 │   ├── core-routing.md                ← 从 templates/rules/ 复制
 │   └── core-safety.md
 ├── skills/
-│   └── content-generate/
-│       ├── SKILL.md                   ← 从 templates/skills/ 复制
-│       └── scripts/
-│           └── content_runtime.py     ← 按 03/04 实现
+│   ├── content-generate/             ← 处理类 skill
+│   │   ├── SKILL.md                   ← 从 templates/skills/ 复制
+│   │   └── scripts/
+│   │       └── content_runtime.py     ← 按 03/04 实现
+│   └── finalize/                     ← 收尾类 skill（工具为 scripts/finalize.py）
+│       └── SKILL.md                   ← 从 templates/skills/ 复制
 ├── memory/
-│   └── summary.md                     ← 初始化后手动填写
+│   └── summary.md                     ← 启动记忆；记录当前实现状态与待验证项
 ├── scripts/
 │   ├── finalize.py                    ← 按 01-framework.md 规格实现
 │   ├── agent_learning_review.py       ← 按 02-self-evolution.md 规格实现

@@ -10,7 +10,7 @@
   python content_runtime.py kb ingest  --src <folder> [--modality auto|doc|image|video]
                                         [--limit N] [--resume] --allow-write
   python content_runtime.py kb search  --query "<text>" [--modality doc|image|video|all]
-                                        [--topk N] [--json]
+                                        [--topk N] [--json] [--no-log] [--no-touch]
   python content_runtime.py kb index   --rebuild [fts|vector|graph|all] --allow-write
   python content_runtime.py kb gc      --older-than 180d [--dry-run] --allow-write
   python content_runtime.py media probe    <file>
@@ -637,19 +637,21 @@ def cmd_search(args) -> int:
     fused = _rrf_merge(vec_hits, fts_hits, graph_hits)[:FUSE_TOPM]
     ranked, reranked = _rerank(args.query, fused, args.topk)
 
-    ts = now_iso()
-    for r in ranked:
-        try:
-            tbl.update(where=f"id = '{r['id']}'", values={"last_hit_at": ts})
-        except Exception:
-            pass
+    if not args.no_touch:
+        ts = now_iso()
+        for r in ranked:
+            try:
+                tbl.update(where=f"id = '{r['id']}'", values={"last_hit_at": ts})
+            except Exception:
+                pass
 
     rows = [{"id": r["id"], "modality": r.get("modality"), "source_path": r.get("source_path"),
              "title": r.get("title"), "caption": r.get("caption"),
              "score": round(float(r.get("_rrf", 0.0)), 5)} for r in ranked]
 
-    _write_search_log(args.query, args.modality, args.topk, [r["id"] for r in rows],
-                      len(vec_hits), len(fts_hits), len(graph_hits), reranked)
+    if not args.no_log:
+        _write_search_log(args.query, args.modality, args.topk, [r["id"] for r in rows],
+                          len(vec_hits), len(fts_hits), len(graph_hits), reranked)
 
     if args.json:
         print(json.dumps(rows, ensure_ascii=False, indent=2))
@@ -1018,6 +1020,8 @@ def build_parser() -> argparse.ArgumentParser:
     sea.add_argument("--modality", default="all", choices=["doc", "image", "video", "all"])
     sea.add_argument("--topk", type=int, default=10)
     sea.add_argument("--json", action="store_true")
+    sea.add_argument("--no-log", action="store_true", help="不写 workspace/kb/search-log.jsonl")
+    sea.add_argument("--no-touch", action="store_true", help="不更新命中条目的 last_hit_at")
     sea.set_defaults(func=cmd_search)
 
     idx = kb.add_parser("index")

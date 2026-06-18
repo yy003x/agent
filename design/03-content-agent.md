@@ -152,19 +152,14 @@ def ingest_video(path, catalog_db, chroma_collection, claude_client):
     frame_captions = [caption_image(frame, claude_client) for frame in frames]
     transcript = "\n".join(f"[{i*30}s] {cap}" for i, cap in enumerate(frame_captions))
 
-    # 3. （可选）whisper 字幕
-    if WHISPER_AVAILABLE:
-        subtitle = run_whisper(path)   # faster-whisper
-        transcript += "\n[字幕]\n" + subtitle
-
-    # 4. 探测时长/分辨率
+    # 3. 探测时长/分辨率
     duration, width, height = probe_video(path)   # ffprobe
 
-    # 5. 复制原片到 media-store
+    # 4. 复制原片到 media-store
     dest = f"workspace/media-store/{make_hash(path)}{Path(path).suffix}"
     shutil.copy2(path, dest)
 
-    # 6. 写入四索引
+    # 5. 写入 items（标量 + 向量 + text_seg；transcript = 帧 caption 拼接）
     item_id = make_id(path, 0)
     tags = extract_tags(path)
     caption = frame_captions[0] if frame_captions else ""
@@ -172,7 +167,7 @@ def ingest_video(path, catalog_db, chroma_collection, claude_client):
                   transcript=transcript, duration_s=duration, width=width, height=height)
     write_fts(item_id, title=Path(path).stem, tags=tags, caption=caption, transcript=transcript)
     write_vector(item_id, text=f"{Path(path).stem} {caption} {transcript[:500]}")
-    write_graph_edges(item_id, tags, catalog_db)
+    # 图谱由规则引擎在 ingest 末尾统一重建（见 04 §图谱构建）
 ```
 
 ### Ingestion 通用约定
@@ -192,7 +187,7 @@ def ingest_video(path, catalog_db, chroma_collection, claude_client):
 
 KB 域：
   kb ingest   --src <folder> [--modality auto|doc|image|video] [--limit N] [--resume] --allow-write
-  kb search   --query "<text>" [--modality doc|image|video|all] [--topk N] [--json]
+  kb search   --query "<text>" [--modality doc|image|video|all] [--topk N] [--json] [--no-log] [--no-touch]
   kb index    --rebuild [fts|vector|graph|all] --allow-write
   kb gc       --older-than 180d [--dry-run] --allow-write
   kb related  --id <doc_id> [--topk N] [--json]      # 二部图扩散：取同 concept 的兄弟 doc
@@ -209,6 +204,7 @@ KB 域：
 ```
 
 **写门禁**：`kb ingest`、`kb index`、`kb gc`、`media assemble`、`publish package` 必须带 `--allow-write` 参数，否则只做 dry-run 并提示。
+`kb search` 默认会写 `search-log.jsonl` 和 `last_hit_at`，用于自学习与清理；严格只读时加 `--no-log --no-touch`。
 
 ---
 
@@ -318,7 +314,7 @@ Step 8  收尾
     {"src": "workspace/media-store/<hash>.png", "resize": [1080, 1440]}
   ],
   "clips": [
-    {"src": "workspace/media-store/<hash>.mp4", "start": 10.5, "end": 35.0, "subtitle": "这是字幕文本"}
+    {"src": "workspace/media-store/<hash>.mp4", "start": 10.5, "end": 35.0, "subtitle": "可选字幕文本"}
   ],
   "body_text": "正文文案（用于写入 publish-checklist.md，不叠加到图片上）"
 }
@@ -336,7 +332,7 @@ def assemble_images(plan, out_dir):
         img = img.resize(img_spec["resize"], Image.LANCZOS)
         img.save(f"{out_dir}/img_{i:02d}.jpg", quality=90)
 
-# 视频裁剪 + 字幕叠加（ffmpeg）
+# 视频裁剪 + 可选字幕（ffmpeg）；正文文案仍放 publish-checklist.md
 def assemble_clip(clip_spec, out_path):
     cmd = [
         "ffmpeg", "-i", clip_spec["src"],
@@ -344,7 +340,6 @@ def assemble_clip(clip_spec, out_path):
         "-t", str(clip_spec["end"] - clip_spec["start"]),
     ]
     if clip_spec.get("subtitle"):
-        # 写临时 SRT 文件，用 subtitles filter
         srt_path = write_srt(clip_spec["subtitle"])
         cmd += ["-vf", f"subtitles={srt_path}"]
     cmd += ["-c:v", "libx264", "-crf", "23", out_path]

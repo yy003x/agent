@@ -70,7 +70,7 @@ python skills/content-generate/scripts/content_runtime.py kb search \
 对用户选中的每条素材，读取 `source_path` 对应的原文件（**索引是候选，原文件是事实源**）：
 - 文档：读取文本内容（取前 500 字作为上下文）
 - 图片：读取 catalog 中的 `caption`（已有 Claude vision 描述，不重复调 API）
-- 视频：读取 `transcript`（帧 caption + 字幕）
+- 视频：读取 `transcript`（帧 caption 拼接）
 
 ### 步骤 5：生成文案
 

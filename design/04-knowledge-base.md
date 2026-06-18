@@ -76,7 +76,7 @@ workspace/media-store/     ← ingest 复制进来的媒体原件副本（不进
 | `title` | string | 书名/文件名/标题 |
 | `tags` | string | JSON array 字符串：`["数学","思维导图"]` |
 | `caption` | string | 图片/视频的 Claude vision 描述；文档为首 200 字 |
-| `transcript` | string | 视频帧 caption + 字幕（可选） |
+| `transcript` | string | 视频帧 caption 按时间戳拼接 |
 | `text_seg` | string | **jieba 分词后**的检索文本（title+tags+caption+transcript） |
 | `vector` | vector(512) | bge-small-zh-v1.5 向量（已归一化） |
 | `chunk_index` | int | 文档 chunk 序号（非文档为 0） |
@@ -157,7 +157,7 @@ q_seg = " ".join(jieba.cut(query))
 
 ## 6. Ingestion（落库差异）
 
-多模态解析流程（文档分块 / 图片 Claude vision caption / 视频抽帧 caption + 可选 whisper）**与 03-content-agent.md 一致**，本文只描述「落库」差异：
+多模态解析流程（文档分块 / 图片 Claude vision caption / 视频抽帧 caption）**与 03-content-agent.md 一致**，本文只描述「落库」差异：
 
 每条 item 入库时写 **3 件事**（同一张 LanceDB 表，一次 `add`/`merge_insert`）：
 
@@ -179,7 +179,7 @@ ingest 末尾由规则引擎统一重建（见「图谱构建」）：遍历 ite
 
 ## 7. 检索管线（hybrid + rerank）
 
-`kb search --query "<text>" [--modality doc|image|video|all] [--topk N]`
+`kb search --query "<text>" [--modality doc|image|video|all] [--topk N] [--no-log] [--no-touch]`
 
 ```python
 def search(query, modality="all", topk=10):
@@ -257,6 +257,9 @@ def docs_by_concepts(concept_ids, flt, n):
 
 ### 检索日志（写 search-log.jsonl）
 
+默认写入 `workspace/kb/search-log.jsonl`，并更新命中条目的 `last_hit_at`。
+严格只读时传 `--no-log --no-touch`。
+
 ```json
 {"ts":"2026-06-18T14:30:00+08:00","query":"数学思维","modality":"all",
  "topk":10,"hits":8,"hit_ids":["abc123","def456"],
@@ -288,7 +291,7 @@ def docs_by_concepts(concept_ids, flt, n):
 | bge-reranker-base | ~1.1 GB | 仅 rerank 时推理，对 ~20 候选打分 |
 | LanceDB（千级） | < 0.5 GB | mmap，按需加载 |
 | jieba 词典 | ~0.05 GB | 首次加载 |
-| **合计峰值** | **~2 GB** | 16G 宽裕，可与 Claude Code 同跑 |
+| **合计峰值** | **~2 GB** | 16G 宽裕，可与 Agent 运行时同跑 |
 
 **设备选择**：`device = "mps" if torch.backends.mps.is_available() else "cpu"`。
 首次运行会从 HuggingFace 下载权重（bge-small-zh ~95MB、reranker-base ~1.1GB），可设 `HF_ENDPOINT` 镜像加速。
@@ -307,7 +310,7 @@ KB 模块对外**只暴露 `kb` 子命令**，签名不变（写操作仍需 `--
 ```
 content-runtime init                  # 建 LanceDB 库 + 表 + FTS index
 content-runtime kb ingest   --src <folder> [--modality ...] [--limit N] [--resume] --allow-write
-content-runtime kb search   --query "<text>" [--modality ...] [--topk N] [--json]
+content-runtime kb search   --query "<text>" [--modality ...] [--topk N] [--json] [--no-log] [--no-touch]
 content-runtime kb index    --rebuild [fts|vector|graph|all] --allow-write
 content-runtime kb gc       --older-than 180d [--dry-run] --allow-write
 content-runtime kb related  --id <doc_id> [--topk N] [--json]   # 二部图扩散：同 concept 的兄弟 doc
