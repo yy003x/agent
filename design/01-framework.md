@@ -417,7 +417,7 @@ YYYY-MM-DD
 │       └── jobs.json
 ├── workspace/                         ← .gitignore 排除
 │   ├── kb/
-│   │   └── lance/                     ← LanceDB（items + edges 表）
+│   │   └── lance/                     ← LanceDB（items + concepts + graph_edges 表）
 │   ├── media-store/
 │   ├── media-inbox/                   ← 用户放入待 ingest 的媒体
 │   ├── daily/

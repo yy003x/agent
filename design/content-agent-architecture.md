@@ -27,7 +27,7 @@
 | 运行形态 | **全本地**：Claude/Codex 作大脑，KB/检索/媒体用本地脚本；无远端服务、无 GPU、无外部生成 API |
 | 内容生成本质 | **文案生成 + 媒体检索组装**：文案由 Claude API 生成；图片/视频从 KB 检索既有素材再组装，**不生成** |
 | 触发机制 | **输入路由软**（规则 + 模型判语义）+ **收尾/学习硬**（hook + 调度，确定性） |
-| 知识库 | **LanceDB**（向量+标量+FTS 同库）+ **bge-small-zh-v1.5** 向量 + **jieba** 中文分词 FTS + **RRF hybrid** + **bge-reranker-base** 精排（详见 04） |
+| 知识库 | **LanceDB**（向量+标量+FTS 同库）+ **bge-small-zh-v1.5** 向量 + **jieba** 中文分词 FTS + **document-concept 二部图**；**三路 RRF**（向量∥FTS∥图召回）+ **bge-reranker-base** 精排（详见 04） |
 | 内容领域 | **教育类图书**（影响检索相关性与文案模板：书单/读书笔记/知识卡片等） |
 | 交付去向 | **小红书 + 朋友圈**：产平台成品包 + 预览确认后手动发布 |
 | 素材量级 | **千级**（半年窗口）；LanceDB 轻松承载；半年清理 job 控制规模 |
@@ -54,8 +54,8 @@
 │  本地 KB 层（LanceDB）     │          │   内容组装（无生成模型）     │
 │  items 表                  │          │  文案: Claude API 生成       │
 │    ├─ vector(bge-small-zh) │◄─检索────┤  图片/视频: 取 KB 既有素材   │
-│    ├─ text_seg(jieba FTS)  │  hybrid  │  组装: 图文拼版/短视频时间线  │
-│    └─ 标量 + edges(graph)  │  +rerank │  轻编辑: 裁剪/字幕(ffmpeg)    │
+│    ├─ text_seg(jieba FTS)  │ 三路 RRF │  组装: 图文拼版/短视频时间线  │
+│    └─ concepts 二部图召回  │  +rerank │  轻编辑: 裁剪/字幕(ffmpeg)    │
 └────────────────────────────┘          └──────────────────────────────┘
    workspace/kb/lance/（索引）+ workspace/media-store/（原件，不进 Git）
 ```
@@ -81,7 +81,7 @@
 
 ### P0 基础骨架（大脑层 + 路由 + 收尾）
 构建：`AGENTS.md`、`rules/core-routing.md`、`rules/core-safety.md`、`SKILL.md`、`scripts/finalize.py`、Stop hook。
-验证：5 类对话路由正确；finalize 手动/hook 触发生成 session。
+验证：6 类对话路由正确（闲聊/问答/搜索/设计/内容生成/执行）；finalize 手动/hook 触发生成 session。
 
 ### P1 本地 KB（文档 + 图片）
 构建：`content_runtime.py` 的 `init` / `kb ingest`(doc+image) / `kb search`；**LanceDB 表 + bge-small-zh-v1.5 向量 + jieba-FTS + RRF + reranker**（见 04）。

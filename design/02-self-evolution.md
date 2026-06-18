@@ -47,18 +47,19 @@ finalize.py 每轮写入，格式见 01-framework.md。
 关键字段：`skill_triggered`、`status`、`摘要`、`KB 命中`。
 
 ### KB 检索日志（`workspace/kb/search-log.jsonl`）
-content-runtime 每次 `kb search` 时追加写入，每行一条 JSON：
+content-runtime 每次 `kb search` 时追加写入，每行一条 JSON（**唯一格式见 04-knowledge-base.md §检索日志**，本处仅示例）：
 ```json
 {
-  "ts": "2026-06-17T14:30:00+08:00",
+  "ts": "2026-06-18T14:30:00+08:00",
   "query": "数学思维",
-  "modality": "image",
+  "modality": "all",
   "topk": 10,
-  "hits": 3,
-  "hit_ids": ["abc123", "def456", "ghi789"],
-  "session_ref": "session-20260617-abc"
+  "hits": 8,
+  "hit_ids": ["abc123", "def456"],
+  "vec_n": 30, "fts_n": 27, "graph_n": 12, "reranked": true
 }
 ```
+（`vec_n/fts_n/graph_n` 为三路召回数，供 kb-tuning 候选判定；无 `session_ref` 字段。）
 
 ### 成品包记录（`outputs/**/*.md`）
 `content-runtime publish package` 产出的 `publish-checklist.md`，记录内容类型和素材组合。
@@ -106,8 +107,8 @@ Session 数：12  KB 搜索记录数：47  候选数：3
   在 rules/core-routing.md「内容生成」分类中补充触发词：
   「读后感 / 书评 / 推荐语 / 总结」→ 路由到 content-generate skill
 - **证据**:
-  - session-20260613-abc.md：输入「写一篇《数学之美》读后感」，被路由到搜索而非内容生成
-  - session-20260615-def.md：输入「帮我写个书评」，同样误路由
+  - session-3f9a2c1b.md：输入「写一篇《数学之美》读后感」，被路由到搜索而非内容生成
+  - session-b7d4e0a6.md：输入「帮我写个书评」，同样误路由
 - **晋升目标**: `rules/core-routing.md`，在「内容生成」分类触发词列表追加
 - **状态**: pending
 
@@ -134,12 +135,12 @@ Session 数：12  KB 搜索记录数：47  候选数：3
 - **置信度**: medium
 - **建议内容**:
   图片 caption 质量偏低：视觉细节描述少，标签颗粒度粗。
-  建议在 content_runtime.py 的 `_caption_image()` 函数中，将 caption prompt 调整为：
+  建议在 content_runtime.py 的 `caption_image_file()` 函数中，将 caption prompt 调整为：
   「描述图片的主题、视觉风格、构图要素和与教育/图书的关联，100字以内，最后列5个精确标签」
 - **证据**:
   - KB 搜索「数学可视化」hits=1（topk=10），但 media-store 中实际有相关图片
   - KB 搜索「思维导图」hits=0（topk=10），同上
-- **晋升目标**: `skills/content-generate/scripts/content_runtime.py`，`_caption_image()` 函数 prompt 修改
+- **晋升目标**: `skills/content-generate/scripts/content_runtime.py`，`caption_image_file()` 函数 prompt 修改
 - **状态**: pending
 ```
 
@@ -216,11 +217,13 @@ Step 1  收集事实
   - 读 workspace/kb/search-log.jsonl 最近 N 天的记录
   - 读 outputs/ 最近 N 天的 publish-checklist.md
 
-Step 2  模式检测（按「候选判定标准」逐项检测）
-  - 统计 search query 频次（query 归一化后 Counter，取 count≥3 的）
-  - 统计 session status=failed 的 skill_triggered 分布
-  - 检测 hits<2 的搜索记录（归类到同一主题后看频次）
-  - 检测 outputs/ 中无对应 template 的内容格式
+Step 2  模式检测（按「候选判定标准」7 项逐项检测）
+  - 统计 search query 频次（query 归一化后 Counter，取 count≥3）→ rule/template
+  - 统计 session status=failed 的 skill_triggered 分布（≥2 次且原因相似）→ skill 修复
+  - 检测 session 摘要中「用户纠正 AI」关键词（纠正/不对/应该是/改成/下次）→ rule/memory
+  - 检测 hits<2 的搜索记录（归类同一主题后频次 ≥2）→ kb-tuning
+  - 检测 outputs/ 某成品类型连续 ≥3 次成功 → template
+  - 检测 outputs/ 中无对应 template 的新内容格式 → template
 
 Step 3  去重
   - 读 workspace/agent-learning/ 历史候选文件

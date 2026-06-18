@@ -90,12 +90,28 @@ anthropic lancedb sentence-transformers jieba apscheduler pillow pdfplumber fast
 
 ---
 
+## 测试数据准备
+
+P1–P3 验收需要一个最小素材集。构建时在项目根创建 `test-data/`，放教育图书主题样例（不依赖外部下载）：
+
+- **文档（P1 必需，无需 API key / ffmpeg）**：≥3 个 `.md`/`.txt`，按目录归类、文件名即书名/主题，内容含「数学思维 / 思维导图 / 书单」等关键词。例如：
+  - `test-data/数学思维/《数学之美》读书笔记.md`
+  - `test-data/数学思维/小学数学思维导图书单.md`
+  - `test-data/几何启蒙/几何之美推荐语.txt`
+- **图片（P2，需 ANTHROPIC_API_KEY）**：1–3 张教育主题图，放 `test-data/数学思维/`。
+- **视频（P3，需 ffmpeg + key）**：1 个短视频 `.mp4`。
+
+目录名 → `origin_dir`（category concept）、文件名 → `title`（book concept），便于验证二部图连边。
+**纯文档链路（P1）可在无 key、无 ffmpeg 下完整验收检索闭环**（向量+jieba-FTS+图召回+rerank）。
+
+---
+
 ## 完成定义（Definition of Done）
 
 以下全部通过视为构建完成：
 
 - [ ] `bash scripts/validate.sh` 无错误退出
-- [ ] 输入 5 类对话，路由分类全部正确（闲聊/问答/搜索/设计/内容生成）
+- [ ] 输入 6 类对话，路由分类全部正确（闲聊/问答/搜索/设计/内容生成/执行）
 - [ ] `python skills/content-generate/scripts/content_runtime.py kb ingest --src <test-folder> --limit 3 --allow-write` 成功写入 LanceDB items 表
 - [ ] `python skills/content-generate/scripts/content_runtime.py kb search --query "数学思维" --topk 5` 返回有效结果
 - [ ] 完整走一次内容生成流程（需求→检索→文案→成品包→预览确认）

@@ -66,13 +66,14 @@
 
 ```
 workspace/kb/
-├── lance/            ← LanceDB 数据目录（items 表 + edges 表）
+├── lance/            ← LanceDB 数据目录（items / concepts / graph_edges 表）
+├── graph.jsonl       ← document-concept 二部图（规则引擎输出，确定性可重建事实源）
 ├── search-log.jsonl  ← 检索日志（自我进化事实源之一）
 └── caption-cache.json← 图片/帧 caption 缓存（按 file_hash，避免换模型重 ingest 时重复计费）
 ```
 
 - `items` 表：标量元数据 + `vector`(512d, cosine) + jieba 预分词列 `text_seg`（FTS 建于此列）。
-- `edges` 表：graph 关系（`same_book` / `same_tag`），供检索后扩散。
+- `concepts` + `graph_edges` 表：**document-concept 二部图**（规则引擎确定性生成，事实源 `graph.jsonl`），作为检索第三路召回与关联素材扩散。详见 04。
 - 旧栈的 `catalog.db`（SQLite）与 `vector/`（ChromaDB）已废弃，统一到 `lance/`。
 
 ### 检索接口（对上层透明）
@@ -137,7 +138,7 @@ def ingest_image(path, catalog_db, chroma_collection, claude_client):
     write_catalog(item_id, "image", dest, tags=tags, caption=caption, width=w, height=h)
     write_fts(item_id, title=Path(path).stem, tags=tags, caption=caption)
     write_vector(item_id, text=f"{Path(path).stem} {caption} {' '.join(tags)}")
-    write_graph_edges(item_id, tags, catalog_db)  # same_tag edges
+    # 图谱不在此增量写；ingest 末尾由规则引擎统一重建 concepts/graph_edges（见 04 §图谱构建）
 ```
 
 ### 视频（.mp4 / .mov）
@@ -194,6 +195,7 @@ KB 域：
   kb search   --query "<text>" [--modality doc|image|video|all] [--topk N] [--json]
   kb index    --rebuild [fts|vector|graph|all] --allow-write
   kb gc       --older-than 180d [--dry-run] --allow-write
+  kb related  --id <doc_id> [--topk N] [--json]      # 二部图扩散：取同 concept 的兄弟 doc
 
 媒体域：
   media probe  <file>
@@ -203,7 +205,7 @@ KB 域：
   publish package --platform xiaohongshu|moments --in <dir> --allow-write
 
 初始化：
-  init        初始化 LanceDB 库（items + edges 表）（首次使用时运行）
+  init        初始化 LanceDB 库（items + concepts + graph_edges 表）（首次使用时运行）
 ```
 
 **写门禁**：`kb ingest`、`kb index`、`kb gc`、`media assemble`、`publish package` 必须带 `--allow-write` 参数，否则只做 dry-run 并提示。
@@ -222,7 +224,7 @@ Step 1  解析需求
 Step 2  检索素材
   python content_runtime.py kb search \
     --query "<主题>" --modality all --topk 10 --json
-  graph 扩散：对命中 item 查 edges 表，取 same_book/same_tag 的关联素材
+  graph 扩散：content_runtime.py kb related --id <命中 doc_id> --json（经二部图取同 concept 的兄弟素材）
   人工筛选确认：展示 topk 候选（title + caption 摘要），询问「使用哪几条？」
 
 Step 3  回读事实源

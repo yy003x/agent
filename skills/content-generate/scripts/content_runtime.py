@@ -55,8 +55,11 @@ Q_INSTRUCTION = "为这个句子生成表示以用于检索相关文章："
 # 检索管线参数（见 04-knowledge-base.md §7）
 VEC_TOPN = 30
 FTS_TOPN = 30
+GRAPH_TOPN = 30        # 图召回：经 concept 扩散的 doc 数
+CONCEPT_TOPN = 10      # query 语义匹配的 concept 数
 RRF_K = 60
 FUSE_TOPM = 20
+GRAPH_JSONL = KB_DIR / "graph.jsonl"   # 二部图事实源（确定性可重建）
 
 DOC_EXT = {".md", ".txt", ".pdf"}
 IMAGE_EXT = {".jpg", ".jpeg", ".png", ".webp"}
@@ -192,6 +195,7 @@ def _items_schema():
     import pyarrow as pa
     return pa.schema([
         ("id", pa.string()), ("modality", pa.string()), ("source_path", pa.string()),
+        ("origin_dir", pa.string()),
         ("title", pa.string()), ("tags", pa.string()), ("caption", pa.string()),
         ("transcript", pa.string()), ("text_seg", pa.string()),
         ("vector", pa.list_(pa.float32(), EMBED_DIM)),
@@ -202,9 +206,20 @@ def _items_schema():
     ])
 
 
-def _edges_schema():
+def _concepts_schema():
     import pyarrow as pa
-    return pa.schema([("src", pa.string()), ("dst", pa.string()), ("rel", pa.string())])
+    return pa.schema([
+        ("concept_id", pa.string()), ("ctype", pa.string()), ("value", pa.string()),
+        ("vector", pa.list_(pa.float32(), EMBED_DIM)), ("doc_count", pa.int64()),
+    ])
+
+
+def _graph_edges_schema():
+    import pyarrow as pa
+    return pa.schema([
+        ("doc_id", pa.string()), ("concept_id", pa.string()),
+        ("ctype", pa.string()), ("rel", pa.string()), ("weight", pa.float64()),
+    ])
 
 
 def get_items_table(create: bool = True):
@@ -216,22 +231,32 @@ def get_items_table(create: bool = True):
     return db.create_table("items", schema=_items_schema())
 
 
-def get_edges_table(create: bool = True):
+def get_concepts_table(create: bool = True):
     db = get_db()
-    if "edges" in db.table_names():
-        return db.open_table("edges")
+    if "concepts" in db.table_names():
+        return db.open_table("concepts")
     if not create:
         return None
-    return db.create_table("edges", schema=_edges_schema())
+    return db.create_table("concepts", schema=_concepts_schema())
+
+
+def get_graph_edges_table(create: bool = True):
+    db = get_db()
+    if "graph_edges" in db.table_names():
+        return db.open_table("graph_edges")
+    if not create:
+        return None
+    return db.create_table("graph_edges", schema=_graph_edges_schema())
 
 
 def init_db() -> None:
     get_items_table(create=True)
-    get_edges_table(create=True)
+    get_concepts_table(create=True)
+    get_graph_edges_table(create=True)
 
 
 def _blank_item() -> dict:
-    return dict(id="", modality="", source_path="", title="", tags="[]", caption="",
+    return dict(id="", modality="", source_path="", origin_dir="", title="", tags="[]", caption="",
                 transcript="", text_seg="", vector=[0.0] * EMBED_DIM, chunk_index=0,
                 duration_s=0.0, width=0, height=0, file_hash="", ingest_at="",
                 last_hit_at="", archived_at="", status="active")
@@ -370,7 +395,7 @@ def build_doc_rows(path: Path) -> list[dict]:
         caption = chunk[:200]
         row = _blank_item()
         row.update(
-            id=make_id(str(path), i), modality="doc", source_path=str(path), title=path.stem,
+            id=make_id(str(path), i), modality="doc", source_path=str(path), origin_dir=path.parent.name, title=path.stem,
             tags=json.dumps(tags, ensure_ascii=False), caption=caption,
             text_seg=build_text_seg(path.stem, tags, caption, ""),
             vector=embed_doc(f"{path.stem} {caption}"),
@@ -394,7 +419,7 @@ def build_image_rows(path: Path) -> list[dict]:
         pass
     row = _blank_item()
     row.update(
-        id=make_id(str(dest), 0), modality="image", source_path=str(dest), title=path.stem,
+        id=make_id(str(dest), 0), modality="image", source_path=str(dest), origin_dir=path.parent.name, title=path.stem,
         tags=json.dumps(tags, ensure_ascii=False), caption=caption,
         text_seg=build_text_seg(path.stem, tags, caption, ""),
         vector=embed_doc(f"{path.stem} {caption} {' '.join(tags)}"),
@@ -436,7 +461,7 @@ def build_video_rows(path: Path) -> list[dict]:
     caption = frame_caps[0] if frame_caps else ""
     row = _blank_item()
     row.update(
-        id=make_id(str(dest), 0), modality="video", source_path=str(dest), title=path.stem,
+        id=make_id(str(dest), 0), modality="video", source_path=str(dest), origin_dir=path.parent.name, title=path.stem,
         tags=json.dumps(tags, ensure_ascii=False), caption=caption, transcript=transcript,
         text_seg=build_text_seg(path.stem, tags, caption, transcript),
         vector=embed_doc(f"{path.stem} {caption} {transcript[:500]}"),
@@ -495,10 +520,11 @@ def cmd_ingest(args) -> int:
 
 # ─────────────────────────── search（hybrid + rerank） ───────────────────────────
 
-def _rrf_merge(list_a: list[dict], list_b: list[dict], k: int = RRF_K) -> list[dict]:
+def _rrf_merge(*lists: list[dict], k: int = RRF_K) -> list[dict]:
+    """RRF 融合任意多路召回（向量 / FTS / 图），按 doc id 去重。"""
     score: dict[str, float] = {}
     by_id: dict[str, dict] = {}
-    for lst in (list_a, list_b):
+    for lst in lists:
         for rank, d in enumerate(lst, start=1):
             _id = d["id"]
             score[_id] = score.get(_id, 0.0) + 1.0 / (k + rank)
@@ -537,6 +563,58 @@ def _fts_search(tbl, query: str, flt: str, n: int) -> list[dict]:
         return []
 
 
+def _sql_in(values) -> str:
+    """构造 SQL IN 列表（单引号字符串，转义内部单引号）。"""
+    return ", ".join("'" + str(v).replace("'", "''") + "'" for v in values) or "''"
+
+
+def _match_concepts(query: str) -> set[str]:
+    """jieba 分词精确匹配 + concepts.vector 近义匹配，返回命中 concept_id。"""
+    ctbl = get_concepts_table(create=False)
+    if ctbl is None:
+        return set()
+    hits: set[str] = set()
+    try:
+        seg = {w for w in jieba_seg(query).split() if w.strip()}
+        for c in ctbl.search().limit(100000).to_list():   # 概念量级小（百~千），全表扫描可接受
+            if c["value"] in seg or c["value"] in query:
+                hits.add(c["concept_id"])
+    except Exception:
+        pass
+    try:
+        for c in ctbl.search(embed_query(query)).metric("cosine").limit(CONCEPT_TOPN).to_list():
+            hits.add(c["concept_id"])
+    except Exception as e:  # noqa: BLE001
+        print(f"[warn] concept 语义匹配不可用（{e}）", file=sys.stderr)
+    return hits
+
+
+def _graph_search(query: str, flt: str, n: int) -> list[dict]:
+    """第三路：query → 匹配 concept → 经二部图取关联 doc（按命中 concept 的 weight 求和排序）。"""
+    cids = _match_concepts(query)
+    if not cids:
+        return []
+    getbl = get_graph_edges_table(create=False)
+    itbl = get_items_table(create=False)
+    if getbl is None or itbl is None:
+        return []
+    try:
+        from collections import Counter
+        edges = getbl.search().where(f"concept_id IN ({_sql_in(cids)})").limit(100000).to_list()
+        score: Counter = Counter()
+        for e in edges:
+            score[e["doc_id"]] += e.get("weight", 1.0)
+        top_ids = [d for d, _ in score.most_common(n)]
+        if not top_ids:
+            return []
+        docs = itbl.search().where(f"({flt}) AND id IN ({_sql_in(top_ids)})").limit(n).to_list()
+        order = {d: i for i, d in enumerate(top_ids)}
+        return sorted(docs, key=lambda d: order.get(d["id"], 1 << 30))
+    except Exception as e:  # noqa: BLE001
+        print(f"[warn] 图召回不可用（{e}）", file=sys.stderr)
+        return []
+
+
 def _rerank(query: str, cands: list[dict], topk: int) -> tuple[list[dict], bool]:
     reranker = get_reranker()
     if not reranker or not cands:
@@ -555,7 +633,8 @@ def cmd_search(args) -> int:
     flt = _build_filter(args.modality)
     vec_hits = _vector_search(tbl, args.query, flt, VEC_TOPN)
     fts_hits = _fts_search(tbl, args.query, flt, FTS_TOPN)
-    fused = _rrf_merge(vec_hits, fts_hits)[:FUSE_TOPM]
+    graph_hits = _graph_search(args.query, flt, GRAPH_TOPN)
+    fused = _rrf_merge(vec_hits, fts_hits, graph_hits)[:FUSE_TOPM]
     ranked, reranked = _rerank(args.query, fused, args.topk)
 
     ts = now_iso()
@@ -569,8 +648,8 @@ def cmd_search(args) -> int:
              "title": r.get("title"), "caption": r.get("caption"),
              "score": round(float(r.get("_rrf", 0.0)), 5)} for r in ranked]
 
-    _write_search_log(args.query, args.modality, args.topk,
-                      [r["id"] for r in rows], len(vec_hits), len(fts_hits), reranked)
+    _write_search_log(args.query, args.modality, args.topk, [r["id"] for r in rows],
+                      len(vec_hits), len(fts_hits), len(graph_hits), reranked)
 
     if args.json:
         print(json.dumps(rows, ensure_ascii=False, indent=2))
@@ -583,11 +662,11 @@ def cmd_search(args) -> int:
     return 0
 
 
-def _write_search_log(query, modality, topk, hit_ids, vec_n, fts_n, reranked) -> None:
+def _write_search_log(query, modality, topk, hit_ids, vec_n, fts_n, graph_n, reranked) -> None:
     KB_DIR.mkdir(parents=True, exist_ok=True)
     rec = {"ts": now_iso(), "query": query, "modality": modality, "topk": topk,
            "hits": len(hit_ids), "hit_ids": hit_ids,
-           "vec_n": vec_n, "fts_n": fts_n, "reranked": reranked}
+           "vec_n": vec_n, "fts_n": fts_n, "graph_n": graph_n, "reranked": reranked}
     with SEARCH_LOG.open("a", encoding="utf-8") as f:
         f.write(json.dumps(rec, ensure_ascii=False) + "\n")
 
@@ -601,37 +680,63 @@ def _rebuild_fts(tbl) -> None:
         print(f"[warn] FTS index 重建失败：{e}", file=sys.stderr)
 
 
+def _concept_id(ctype: str, value: str) -> str:
+    return f"{ctype}:{value.strip()}"
+
+
+def extract_concepts(item: dict) -> list[dict]:
+    """规则引擎：从单条 item 元数据确定性抽取 document→concept 边（保守集：书名/标签/分类）。"""
+    title = (item.get("title") or "").strip()
+    origin = (item.get("origin_dir") or "").strip()
+    out = []
+    if title:
+        out.append({"ctype": "book", "value": title, "rel": "is_book"})        # R1
+    if origin:
+        out.append({"ctype": "category", "value": origin, "rel": "in_category"})  # R3
+    for tag in json.loads(item.get("tags") or "[]"):                            # R2
+        tag = (tag or "").strip()
+        if tag and tag != title and tag != origin:
+            out.append({"ctype": "topic", "value": tag, "rel": "has_topic"})
+    return out
+
+
 def _rebuild_graph(tbl) -> None:
-    """按 title/tags 在内存中重建 same_book / same_tag 边。"""
-    edges_tbl = get_edges_table()
+    """规则引擎遍历 items → 重写 graph.jsonl（事实源）→ 重灌 concepts + graph_edges 表（确定性）。"""
     try:
-        rows = tbl.search().where("status = 'active'").limit(100000).to_list()
+        rows = tbl.search().where("status = 'active'").limit(1000000).to_list()
     except Exception:
         rows = []
-    # 清空旧边
-    try:
-        edges_tbl.delete("true")
-    except Exception:
-        pass
-    by_title: dict[str, list[str]] = {}
-    by_tag: dict[str, list[str]] = {}
+
+    edges: list[dict] = []
+    concept_meta: dict[str, dict] = {}
     for r in rows:
-        by_title.setdefault(r.get("title") or "", []).append(r["id"])
-        for t in json.loads(r.get("tags") or "[]"):
-            by_tag.setdefault(t, []).append(r["id"])
-    edges = []
-    for ids in by_title.values():
-        for a in ids:
-            for b in ids:
-                if a != b:
-                    edges.append({"src": a, "dst": b, "rel": "same_book"})
-    for ids in by_tag.values():
-        for a in ids:
-            for b in ids:
-                if a != b:
-                    edges.append({"src": a, "dst": b, "rel": "same_tag"})
+        for c in extract_concepts(r):
+            cid = _concept_id(c["ctype"], c["value"])
+            edges.append({"doc_id": r["id"], "concept_id": cid,
+                          "ctype": c["ctype"], "rel": c["rel"], "weight": 1.0})
+            m = concept_meta.setdefault(cid, {"ctype": c["ctype"], "value": c["value"], "doc_count": 0})
+            m["doc_count"] += 1
+
+    # 事实源：graph.jsonl（确定性可重建、可 diff、可审计）
+    KB_DIR.mkdir(parents=True, exist_ok=True)
+    with GRAPH_JSONL.open("w", encoding="utf-8") as f:
+        for e in edges:
+            f.write(json.dumps({**e, "value": concept_meta[e["concept_id"]]["value"]},
+                               ensure_ascii=False) + "\n")
+
+    # 查询载体：从 graph.jsonl 同源重灌 concepts（带向量）+ graph_edges 表
+    db = get_db()
+    for name in ("concepts", "graph_edges"):
+        if name in db.table_names():
+            db.drop_table(name)
+    ctbl = get_concepts_table(create=True)
+    getbl = get_graph_edges_table(create=True)
+    if concept_meta:
+        ctbl.add([{"concept_id": cid, "ctype": m["ctype"], "value": m["value"],
+                   "vector": embed_doc(m["value"]), "doc_count": m["doc_count"]}
+                  for cid, m in concept_meta.items()])
     if edges:
-        edges_tbl.add(edges)
+        getbl.add(edges)
 
 
 def cmd_index(args) -> int:
@@ -697,6 +802,8 @@ def cmd_gc(args) -> int:
         if MEDIA_STORE in sp.parents and sp.exists():
             sp.unlink()  # 只删 ingest 复制进来的副本，不动用户原始文件
         tbl.delete(f"id = '{r['id']}'")
+    if to_archive or to_delete:
+        _rebuild_graph(tbl)   # 图谱依 active items 重建，剔除已归档/删除项
     print(f"[gc] 已归档 {len(to_archive)} / 删除 {len(to_delete)}")
     return 0
 
@@ -841,7 +948,7 @@ def _build_checklist(platform: str, meta: dict, order: list[str]) -> str:
 def cmd_init(args) -> int:
     try:
         init_db()
-        print(f"  ✓ LanceDB 库就绪：{LANCE_DIR.relative_to(ROOT)}（items + edges 表）")
+        print(f"  ✓ LanceDB 库就绪：{LANCE_DIR.relative_to(ROOT)}（items + concepts + graph_edges 表）")
     except Exception as e:  # noqa: BLE001
         print(f"  ! LanceDB 初始化失败（{e}）；安装 lancedb 后重试")
         return 1
@@ -851,6 +958,40 @@ def cmd_init(args) -> int:
     except Exception as e:  # noqa: BLE001
         print(f"  ! 向量模型加载跳过（{e}）；pip install sentence-transformers")
     print(f"  · reranker：{RERANK_MODEL}（检索时懒加载）")
+    return 0
+
+
+# ─────────────────────────── graph 扩散（供 skill 关联素材） ───────────────────────────
+
+def cmd_related(args) -> int:
+    """给定 doc_id，经二部图取「同 concept」的兄弟 doc（content-generate 步骤 2 关联素材扩散用）。"""
+    itbl = get_items_table(create=False)
+    getbl = get_graph_edges_table(create=False)
+    if itbl is None or getbl is None:
+        print("（图谱为空，请先 kb ingest）")
+        return 0
+    from collections import Counter
+    mine = getbl.search().where(f"doc_id = '{args.id}'").limit(100000).to_list()
+    cids = {e["concept_id"] for e in mine}
+    if not cids:
+        print("（该 doc 无关联 concept）")
+        return 0
+    sib = getbl.search().where(f"concept_id IN ({_sql_in(cids)})").limit(100000).to_list()
+    score: Counter = Counter()
+    for e in sib:
+        if e["doc_id"] != args.id:
+            score[e["doc_id"]] += e.get("weight", 1.0)
+    top = [d for d, _ in score.most_common(args.topk)]
+    docs = itbl.search().where(f"id IN ({_sql_in(top)})").limit(args.topk).to_list() if top else []
+    order = {d: i for i, d in enumerate(top)}
+    docs.sort(key=lambda d: order.get(d["id"], 1 << 30))
+    out = [{"id": d["id"], "modality": d.get("modality"), "title": d.get("title"),
+            "source_path": d.get("source_path"), "shared": round(float(score[d["id"]]), 2)} for d in docs]
+    if args.json:
+        print(json.dumps(out, ensure_ascii=False, indent=2))
+    else:
+        for i, d in enumerate(out, 1):
+            print(f"{i:>2} | {d['modality']:<5} | {(d['title'] or '')[:24]:<24} | shared={d['shared']} | {d['id']}")
     return 0
 
 
@@ -889,6 +1030,12 @@ def build_parser() -> argparse.ArgumentParser:
     gc.add_argument("--dry-run", action="store_true")
     gc.add_argument("--allow-write", action="store_true")
     gc.set_defaults(func=cmd_gc)
+
+    rel = kb.add_parser("related")
+    rel.add_argument("--id", required=True)
+    rel.add_argument("--topk", type=int, default=10)
+    rel.add_argument("--json", action="store_true")
+    rel.set_defaults(func=cmd_related)
 
     media = sub.add_parser("media", help="媒体").add_subparsers(dest="action", required=True)
     pr = media.add_parser("probe")
