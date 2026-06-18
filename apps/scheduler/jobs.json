@@ -1,0 +1,22 @@
+{
+  "jobs": [
+    {
+      "id": "weekly_learn",
+      "cron": "0 9 * * 1",
+      "command": "python scripts/agent_learning_review.py --days 7",
+      "description": "每周一 09:00 生成学习候选"
+    },
+    {
+      "id": "media_ingest",
+      "cron": "0 2 * * *",
+      "command": "python skills/content-generate/scripts/content_runtime.py kb ingest --src workspace/media-inbox --limit 20 --resume --allow-write",
+      "description": "每天 02:00 后台 ingest 新增媒体，限流 20 条"
+    },
+    {
+      "id": "kb_gc",
+      "cron": "0 3 1 */6 *",
+      "command": "python skills/content-generate/scripts/content_runtime.py kb gc --older-than 180d --dry-run",
+      "description": "每半年首日 03:00 预览清理候选（dry-run，确认后手动去掉 --dry-run 执行）"
+    }
+  ]
+}

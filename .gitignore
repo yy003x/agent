@@ -1,0 +1,27 @@
+# === 敏感信息 ===
+.env
+*.key
+*.pem
+
+# === Python ===
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.egg-info/
+
+# === macOS ===
+.DS_Store
+
+# === 运行态 / 知识库 / 产出(不进 Git,仅保留目录占位 .gitkeep）===
+workspace/**
+!workspace/**/
+!workspace/**/.gitkeep
+
+outputs/**
+!outputs/**/
+!outputs/.gitkeep
+
+runs/**
+!runs/**/
+!runs/**/.gitkeep
