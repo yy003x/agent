@@ -27,7 +27,7 @@
                           │
               ┌───────────┴───────────┐
          本地 KB 层               内容组装层
-    （SQLite + ChromaDB）     （Claude 文案 + ffmpeg）
+  （LanceDB + bge-small-zh）   （Claude 文案 + ffmpeg）
 ```
 
 ---
@@ -149,7 +149,7 @@ skills/
 
 ## 前置检查
 [执行前必须满足的条件：依赖存在/环境/权限]
-- [ ] catalog.db 存在（workspace/kb/catalog.db）
+- [ ] lance/ 存在（workspace/kb/lance/，运行 init 初始化）
 - [ ] ANTHROPIC_API_KEY 已设置
 
 ## 执行流程
@@ -417,8 +417,7 @@ YYYY-MM-DD
 │       └── jobs.json
 ├── workspace/                         ← .gitignore 排除
 │   ├── kb/
-│   │   ├── catalog.db
-│   │   └── vector/
+│   │   └── lance/                     ← LanceDB（items + edges 表）
 │   ├── media-store/
 │   ├── media-inbox/                   ← 用户放入待 ingest 的媒体
 │   ├── daily/

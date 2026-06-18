@@ -70,7 +70,7 @@ skills/content-generate/    内容生成 skill
 scripts/finalize.py         收尾记录
 scripts/agent_learning_review.py  自学习候选生成
 apps/scheduler/             定时任务
-workspace/kb/               本地知识库（catalog.db + vector/）
+workspace/kb/               本地知识库（LanceDB：lance/）
 workspace/daily/            Session 记录（自我进化事实源）
 outputs/                    任务产出
 ```

@@ -57,80 +57,36 @@
 
 ## 知识库层（KB Layer）
 
-### 存储架构
+> **KB 已抽为独立模块，完整设计见 [04-knowledge-base.md](04-knowledge-base.md)。**
+> 技术栈：**LanceDB**（向量 + 标量 + FTS 同库）+ **BAAI/bge-small-zh-v1.5** 向量
+> + **jieba** 中文分词 FTS + **RRF hybrid** 融合 + **BAAI/bge-reranker-base** 精排。
+> 本节仅保留与应用层对接的要点；表结构与检索管线详见 04。
+
+### 存储结构
 
 ```
 workspace/kb/
-├── catalog.db        ← SQLite 主库（str + fts + graph + 元数据）
-├── vector/           ← ChromaDB 持久化目录（语义向量）
-└── search-log.jsonl  ← 检索日志（自我进化的事实源之一）
+├── lance/            ← LanceDB 数据目录（items 表 + edges 表）
+├── search-log.jsonl  ← 检索日志（自我进化事实源之一）
+└── caption-cache.json← 图片/帧 caption 缓存（按 file_hash，避免换模型重 ingest 时重复计费）
 ```
 
-### catalog.db 建表 SQL（首次运行时执行）
+- `items` 表：标量元数据 + `vector`(512d, cosine) + jieba 预分词列 `text_seg`（FTS 建于此列）。
+- `edges` 表：graph 关系（`same_book` / `same_tag`），供检索后扩散。
+- 旧栈的 `catalog.db`（SQLite）与 `vector/`（ChromaDB）已废弃，统一到 `lance/`。
 
-```sql
--- 主条目表
-CREATE TABLE IF NOT EXISTS items (
-    id           TEXT PRIMARY KEY,     -- sha256(source_path + mtime)[:16]
-    modality     TEXT NOT NULL,        -- doc | image | video
-    source_path  TEXT NOT NULL,        -- 原文件路径（media-store 内）
-    title        TEXT,                 -- 书名/文件名/标题
-    tags         TEXT,                 -- JSON array：["数学","思维导图","小学"]
-    caption      TEXT,                 -- 图片/视频的 Claude vision 描述文本
-    transcript   TEXT,                 -- 视频字幕（可选，whisper 生成）
-    chunk_index  INTEGER DEFAULT 0,    -- 文档 chunk 序号（非文档为 0）
-    duration_s   REAL,                 -- 视频时长（秒）
-    width        INTEGER,
-    height       INTEGER,
-    file_hash    TEXT,                 -- sha256 of source file
-    ingest_at    TEXT,                 -- ISO8601
-    last_hit_at  TEXT,                 -- 最后被检索命中时间
-    status       TEXT DEFAULT 'active' -- active | archived | deleted
-);
+### 检索接口（对上层透明）
 
--- FTS5 全文索引（trigram：支持中文无分词模糊搜索）
-CREATE VIRTUAL TABLE IF NOT EXISTS items_fts USING fts5(
-    id       UNINDEXED,
-    title,
-    tags,
-    caption,
-    transcript,
-    tokenize = "trigram"
-);
-
--- 触发器：items 写入时同步 FTS
-CREATE TRIGGER IF NOT EXISTS items_fts_insert
-AFTER INSERT ON items BEGIN
-    INSERT INTO items_fts(id, title, tags, caption, transcript)
-    VALUES (new.id, new.title, new.tags, new.caption, new.transcript);
-END;
-
--- graph 关系表（最小化）
-CREATE TABLE IF NOT EXISTS edges (
-    src  TEXT NOT NULL,  -- item id
-    dst  TEXT NOT NULL,  -- item id
-    rel  TEXT NOT NULL   -- same_book | same_tag | same_source | cited_by
-);
-CREATE INDEX IF NOT EXISTS edges_src ON edges(src);
-```
-
-### ChromaDB 初始化（Python 代码片段）
-
-```python
-import chromadb
-
-client = chromadb.PersistentClient(path="workspace/kb/vector")
-collection = client.get_or_create_collection(
-    name="content_kb",
-    metadata={"hnsw:space": "cosine"}
-)
-```
-
-Embedding 函数：调 `anthropic` 客户端的 `messages.create` 传图文描述，或使用 `chromadb.utils.embedding_functions.OpenAIEmbeddingFunction(model_name="text-embedding-3-small")`。
+`kb search` 内部走「向量召回 ∥ jieba-FTS 召回 → RRF 融合 → reranker 精排 → topk」，
+返回 `[{id, modality, source_path, title, caption, score}]`。上层只管回读 `source_path` 原文件。
 
 ---
 
 ## 多模态 Ingestion 流程
+
+> 注：以下伪代码中的 `catalog_db / chroma_collection / write_vector` 为旧栈示意；新栈下统一为
+> 「向 LanceDB `items` 表写一条含 `vector`(bge-small-zh-v1.5) + `text_seg`(jieba) 的记录」，
+> 落库与索引细节见 [04-knowledge-base.md](04-knowledge-base.md) §6。**解析 / 抽帧 / caption 流程不变。**
 
 ### 文档（.md / .txt / .pdf）
 
@@ -236,7 +192,7 @@ def ingest_video(path, catalog_db, chroma_collection, claude_client):
 KB 域：
   kb ingest   --src <folder> [--modality auto|doc|image|video] [--limit N] [--resume] --allow-write
   kb search   --query "<text>" [--modality doc|image|video|all] [--topk N] [--json]
-  kb index    --rebuild [str|fts|vector|graph|all] --allow-write
+  kb index    --rebuild [fts|vector|graph|all] --allow-write
   kb gc       --older-than 180d [--dry-run] --allow-write
 
 媒体域：
@@ -247,7 +203,7 @@ KB 域：
   publish package --platform xiaohongshu|moments --in <dir> --allow-write
 
 初始化：
-  init        初始化 catalog.db 和 ChromaDB collection（首次使用时运行）
+  init        初始化 LanceDB 库（items + edges 表）（首次使用时运行）
 ```
 
 **写门禁**：`kb ingest`、`kb index`、`kb gc`、`media assemble`、`publish package` 必须带 `--allow-write` 参数，否则只做 dry-run 并提示。
@@ -470,6 +426,6 @@ python content_runtime.py kb gc --older-than 180d --allow-write
 
 清理策略：
 1. `last_hit_at < 180天前` → status 改为 `archived`，不删物理文件
-2. `status=archived 且 archived_at < 90天前` → 删 media-store 副本（不删用户原始文件夹），catalog status 改 `deleted`
-3. 向量库：删对应 ChromaDB item
+2. `status=archived 且 archived_at < 90天前` → 删 media-store 副本（不删用户原始文件夹），LanceDB `items` 表 status 改 `deleted`
+3. 从 LanceDB `items` 表 `delete` 该记录（向量随行删除）
 4. 不清理 `status=active` 的条目，不动 `workspace/media-inbox/`（用户放置的待 ingest 文件）

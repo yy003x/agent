@@ -12,8 +12,8 @@
 
 执行前确认以下条件满足，任一不满足则停下告知用户：
 
-- [ ] `workspace/kb/catalog.db` 存在（运行 `content_runtime.py init` 初始化）
-- [ ] `workspace/kb/vector/` 目录存在（ChromaDB 初始化完成）
+- [ ] `workspace/kb/lance/` 存在（运行 `content_runtime.py init` 初始化 LanceDB）
+- [ ] 向量/精排模型可用（bge-small-zh-v1.5 / bge-reranker-base，首次自动下载）
 - [ ] `ANTHROPIC_API_KEY` 已设置（`.env` 文件存在且 key 有效）
 - [ ] `ffmpeg` 可执行（运行 `ffmpeg -version` 验证）
 

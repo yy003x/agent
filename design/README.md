@@ -36,19 +36,21 @@ finalize 沉淀（session 记录）
 1. **本文件（README.md）** — 总览与约定
 2. **01-framework.md** — 通用 Agent 框架（rules/skills/routing/finalize 机制；这是最关键的文件）
 3. **02-self-evolution.md** — 自我进化完整规格（候选判定/晋升流程）
-4. **03-content-agent.md** — 内容生成应用层（KB/runtime/组装/平台规格）
-5. **templates/** — 直接可用的文件模板（构建时复制到项目根目录后实现/补全）
+4. **03-content-agent.md** — 内容生成应用层（runtime/组装/平台规格）
+5. **04-knowledge-base.md** — 知识库层独立设计（LanceDB + bge-small-zh-v1.5 + jieba FTS + hybrid + reranker）
+6. **templates/** — 直接可用的文件模板（构建时复制到项目根目录后实现/补全）
 
 ---
 
 ## 文件夹地图
 
 ```
-design/agent-dev/
+design/
 ├── README.md                            ← 你在这里
 ├── 01-framework.md                      ← 通用框架（必读）
 ├── 02-self-evolution.md                 ← 自我进化规格
 ├── 03-content-agent.md                  ← 内容生成应用层
+├── 04-knowledge-base.md                 ← 知识库层独立设计
 └── templates/                           ← 构建时复制/实现的文件模板
     ├── AGENTS.md                        ← 项目入口（完整内容，直接使用）
     ├── rules/
@@ -64,7 +66,7 @@ design/agent-dev/
 
 **约定**：
 - `templates/` 下的文件是「最终产物」，按路径复制到项目根目录后直接可用（或按注释补全实现）
-- `01/02/03.md` 是设计文档，解释「为什么」和「怎么实现脚本/代码」
+- `01/02/03/04.md` 是设计文档，解释「为什么」和「怎么实现脚本/代码」
 - 实现语言：Python 3.11+（除 validate.sh 是 shell）
 
 ---
@@ -78,11 +80,12 @@ design/agent-dev/
 | ffmpeg | `brew install ffmpeg` |
 | Claude API Key | `ANTHROPIC_API_KEY` 写入 `.env` |
 | whisper（可选） | `faster-whisper`，视频字幕用，默认后置 |
+| 向量/精排模型 | BAAI/bge-small-zh-v1.5（向量, 512d）+ BAAI/bge-reranker-base（精排），首次自动下载 |
 | AI 运行时 | Claude Code CLI 或 Codex CLI |
 
 Python 包依赖（`pip install`）：
 ```
-anthropic chromadb apscheduler pillow pdfplumber faster-whisper
+anthropic lancedb sentence-transformers jieba apscheduler pillow pdfplumber faster-whisper
 ```
 
 ---
@@ -93,7 +96,7 @@ anthropic chromadb apscheduler pillow pdfplumber faster-whisper
 
 - [ ] `bash scripts/validate.sh` 无错误退出
 - [ ] 输入 5 类对话，路由分类全部正确（闲聊/问答/搜索/设计/内容生成）
-- [ ] `python skills/content-generate/scripts/content_runtime.py kb ingest --src <test-folder> --limit 3` 成功写入 catalog.db + ChromaDB
+- [ ] `python skills/content-generate/scripts/content_runtime.py kb ingest --src <test-folder> --limit 3 --allow-write` 成功写入 LanceDB items 表
 - [ ] `python skills/content-generate/scripts/content_runtime.py kb search --query "数学思维" --topk 5` 返回有效结果
 - [ ] 完整走一次内容生成流程（需求→检索→文案→成品包→预览确认）
 - [ ] `python scripts/finalize.py record` 在 `workspace/daily/` 生成 session 文件
@@ -117,7 +120,7 @@ anthropic chromadb apscheduler pillow pdfplumber faster-whisper
 │   └── content-generate/
 │       ├── SKILL.md                   ← 从 templates/skills/ 复制
 │       └── scripts/
-│           └── content_runtime.py     ← 按 03-content-agent.md 实现
+│           └── content_runtime.py     ← 按 03/04 实现
 ├── memory/
 │   └── summary.md                     ← 初始化后手动填写
 ├── scripts/
@@ -130,8 +133,7 @@ anthropic chromadb apscheduler pillow pdfplumber faster-whisper
 │       └── jobs.json                  ← 按 02-self-evolution.md 内容创建
 ├── workspace/                         ← 不进 Git（.gitignore 排除）
 │   ├── kb/
-│   │   ├── catalog.db                 ← 首次运行时自动创建
-│   │   └── vector/                    ← ChromaDB 存储目录
+│   │   └── lance/                     ← LanceDB 数据目录（首次 init 自动创建）
 │   ├── media-store/
 │   ├── daily/
 │   ├── agent-learning/

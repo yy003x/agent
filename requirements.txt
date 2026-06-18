@@ -1,12 +1,16 @@
 # 本地内容生成 Agent 依赖
 # 安装：pip install -r requirements.txt
 
-anthropic>=0.40          # Claude API：文案生成 + 图片/视频帧 caption
-chromadb>=0.5            # 本地向量库（workspace/kb/vector/）
-sentence-transformers>=3.0  # 本地 embedding（BAAI/bge-m3，中文友好）
-apscheduler>=3.10        # 定时任务（ingest / learn / gc）
-pillow>=10.0            # 图片 resize / 拼版
-pdfplumber>=0.11         # PDF 文档解析（可选，doc ingest 用）
+anthropic>=0.40             # Claude API：文案生成 + 图片/视频帧 caption
+
+# 知识库层（见 agent-dev/04-knowledge-base.md）
+lancedb>=0.13               # 本地向量库 + FTS（hybrid 检索，嵌入式无服务）
+sentence-transformers>=3.0  # bge-small-zh-v1.5 向量 + bge-reranker-base 精排
+jieba>=0.42                 # 中文分词（FTS 列 text_seg 与查询）
+
+apscheduler>=3.10           # 定时任务（ingest / learn / gc）
+pillow>=10.0               # 图片 resize / 拼版
+pdfplumber>=0.11            # PDF 文档解析（可选，doc ingest 用）
 
 # 可选：视频字幕（默认后置，不预装也能跑视频抽帧 caption）
 # faster-whisper>=1.0
