@@ -170,7 +170,8 @@ ingest 末尾由规则引擎统一重建（见「图谱构建」）：遍历 ite
 
 通用约定（不变）：
 - 增量/断点续跑：按 `file_hash` 比对，已处理跳过（`--resume`）。
-- 并发：图片 ≤3，视频 1（M1 本地友好）。
+- 处理顺序：当前**串行**（限流友好、实现简单）；图片并发为后续优化项。
+- 防孤儿：写入前按 `source_path` 删旧行（doc 更新后旧 mtime 的 chunk 不残留）。
 - Claude vision 限流：每分钟 ≤10 次。
 - `--limit N`：单次最多处理 N 个文件（scheduler 后台用）。
 - ingest 后需 `create_fts_index("text_seg", replace=True)`（首次或新增后重建 FTS）。

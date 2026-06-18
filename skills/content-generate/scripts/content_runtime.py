@@ -286,9 +286,18 @@ def _blank_item() -> dict:
 
 
 def upsert_items(tbl, rows: list[dict]) -> None:
-    """按 id upsert（merge_insert）。"""
+    """先按 source_path 删旧行，再 upsert。
+
+    防孤儿 chunk：doc 的 id 含 mtime，文件更新后所有 chunk 得到新 id，仅靠
+    merge_insert(id) 会留下旧 mtime 的旧 chunk。先删同 source_path 的旧行可避免。
+    """
     if not rows:
         return
+    for sp in {r["source_path"] for r in rows if r.get("source_path")}:
+        try:
+            tbl.delete("source_path = '%s'" % sp.replace("'", "''"))
+        except Exception:
+            pass
     (tbl.merge_insert("id")
         .when_matched_update_all()
         .when_not_matched_insert_all()

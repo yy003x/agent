@@ -172,7 +172,7 @@ def ingest_video(path, catalog_db, chroma_collection, claude_client):
 
 ### Ingestion 通用约定
 - 新增/变更检测：`file_hash` 与 catalog 比对，已处理跳过（断点续跑支持）
-- 并发限制：图片最多 3 并发，视频 1 并发
+- 处理顺序：当前串行处理（图片并发为后续优化）
 - Claude vision 调用限流：每分钟最多 10 次（避免 API rate limit）
 - `--limit N` 参数：单次最多处理 N 个文件（scheduler 用，避免长时间阻塞）
 
