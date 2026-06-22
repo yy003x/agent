@@ -27,7 +27,7 @@ workspace/agent-learning/candidates-YYYY-MM-DD.md
 
         ↓ accept
 
-写入晋升目标（rules/ | skills/ | memory/ | templates/）
+python scripts/agent_learning_review.py promote --decision accept --patch <diff> --allow-write
 
         ↓
 
@@ -173,17 +173,19 @@ Session 数：12  KB 搜索记录数：47  候选数：3
 3. 询问用户：「候选 #N：accept / reject / modify？」
 4. 按用户回应处理：
 
-   accept  → AI 按「建议内容」修改晋升目标文件
-             → bash scripts/validate.sh --quick
+   accept  → AI 先生成明确 unified diff（不按自然语言建议直接自动改）
+             → python scripts/agent_learning_review.py promote --decision accept --patch <diff> --allow-write
+             → 命令内部执行 bash scripts/validate.sh --quick
              → 通过：候选状态改为 accepted
-             → 失败：回滚，候选状态改为 failed，告知错误
+             → 失败：命令尝试回滚 patch，候选状态改为 failed，告知错误
 
-   reject  → 候选文件中把 「状态: pending」改为「状态: rejected」
+   reject  → python scripts/agent_learning_review.py promote --decision reject --allow-write
+             → 候选文件中把「状态: pending」改为「状态: rejected」
              → 不修改任何规则/skill/memory
 
-   modify  → 用户给出修改意见
-             → AI 调整建议内容后再次展示
-             → 用户确认后再执行 accept 流程
+   modify  → python scripts/agent_learning_review.py promote --decision modify --note "<修改意见>" --allow-write
+             → 候选文件中把状态改为 modified 并记录处理备注
+             → 后续确认后再执行 accept 流程
 
 5. 所有候选处理完毕 → 汇总报告（accepted N / rejected M / pending K 条）
 ```
@@ -192,7 +194,7 @@ Session 数：12  KB 搜索记录数：47  候选数：3
 - 任何晋升都必须有用户明确 accept，不能自动晋升
 - 一次只处理一条候选，不批量修改
 - 晋升后必须跑 `validate.sh --quick`，失败则回滚
-- 绝不自动修改 `rules/core-*.md` 中的安全规则
+- 绝不自动修改 `rules/core-safety.md`
 - 绝不自动删除规则或 skill 步骤
 
 ---
@@ -205,7 +207,15 @@ Session 数：12  KB 搜索记录数：47  候选数：3
 
 用法：
   python scripts/agent_learning_review.py [--days N]    默认 7
+  python scripts/agent_learning_review.py generate [--days N]
   python scripts/agent_learning_review.py --dry-run     打印候选不写文件
+  python scripts/agent_learning_review.py promote \
+    --file workspace/agent-learning/candidates-YYYY-MM-DD.md \
+    --candidate N \
+    --decision accept|reject|modify \
+    [--patch /path/to/change.diff] \
+    [--note "..."] \
+    --allow-write
 
 输出：
   workspace/agent-learning/candidates-YYYY-MM-DD.md
@@ -234,7 +244,8 @@ Step 4  生成候选文件
   - 写入 workspace/agent-learning/candidates-YYYY-MM-DD.md
 
 注意：
-  - 只生成候选，不修改任何 rules/skill/memory
+  - generate 只生成候选，不修改任何 rules/skill/memory
+  - promote accept 只应用明确 patch，不从自然语言建议自动修改文件
   - 候选数量上限：单次 5 条（避免过多候选导致用户疲劳）
   - workspace/agent-learning/ 不存在时自动创建
 """
@@ -249,6 +260,7 @@ Step 4  生成候选文件
 | 自动晋升（跳过用户确认） | 规则影响 AI 全局行为，必须人工审核 |
 | 自动修改 `core-safety.md` | 安全规则修改风险最高 |
 | 自动删除规则或 skill 步骤 | 删除是不可逆操作 |
+| 从候选自然语言直接改文件 | 必须先形成明确 patch，保证可审计、可回滚 |
 | 跳过 `validate.sh --quick` 强制晋升 | 晋升后必须验证系统健康 |
 | 批量处理多条候选 | 一次一条，减少误操作范围 |
 | 存储原始对话文本 | 只存结构化摘要 |

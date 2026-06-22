@@ -1,6 +1,6 @@
 # Agent 开发完整设计包
 
-本文件夹是「本地 AI 内容生成 Agent」的**开发设计包**。
+本文件夹是「学而思图书运营本地 AI 内容生成 Agent」的**开发设计包**。
 AI 工具读取本文件夹后，可理解目标态、当前基线实现和后续补齐路线。
 
 ---
@@ -25,7 +25,7 @@ finalize 沉淀（session 记录）
 
 能力边界：
 - 日常对话输入，自动分类路由到对应 skill
-- 检索本地知识库（文档/图片/视频），生成教育类图书内容（小红书/朋友圈图文、短视频）
+- 检索本地知识库（文档/图片/视频），生成学而思图书运营内容（小红书/朋友圈图文、家长群话术、短视频）
 - 每轮任务结束自动记录 session，定期提炼学习候选，人工确认后晋升规则/skill/memory
 - **本地运行与本地存储**；文案与图片/视频 caption 可调用 Claude / Anthropic API；
   无自动发布，不调用外部发布 API，不使用图片/视频生成模型。
@@ -35,10 +35,10 @@ finalize 沉淀（session 记录）
 ## 当前实现状态
 
 截至当前仓库基线：
-- 已实现：入口规则、`content-generate` / `finalize` skill、KB ingest/search/index/gc/related、媒体组装、发布打包、自学习候选生成、scheduler。
+- 已实现：学而思图书运营入口、入口规则、`content-generate` / `finalize` skill、KB ingest/search/index/gc/related/legacy、文案草稿 CLI、plan 构建 CLI、媒体组装、发布打包、自学习候选生成与 promote 命令、scheduler。
 - 已修正：`validate.sh` 拆为 quick/e2e；runtime 写操作会标记 finalize activity；ingest 部分失败返回非 0；GC 使用 `last_hit_at` / `ingest_at` 双时间判断；视频 clips 会进入发布包。
-- 待验证：首次 `content_runtime.py init`、最小 KB ingest/search、端到端内容生成、Stop hook、scheduler 常驻运行。
-- 待补能力：文案/plan 脚本化命令、自学习候选晋升命令、旧 KB 残留清理。
+- 待验证：首次 `content_runtime.py init`、最小 KB ingest/search、端到端内容生成、Stop hook、scheduler 常驻运行、完整 e2e 依赖环境。
+- 待补能力：高质量平台文案模板库、真实素材样例回归集、非空旧 KB 迁移脚本。
 
 ---
 
@@ -49,7 +49,8 @@ finalize 沉淀（session 记录）
 3. **02-self-evolution.md** — 自我进化完整规格（候选判定/晋升流程）
 4. **03-content-agent.md** — 内容生成应用层（runtime/组装/平台规格）
 5. **04-knowledge-base.md** — 知识库层独立设计（LanceDB + bge-small-zh-v1.5 + jieba FTS + hybrid + reranker）
-6. **templates/** — 直接可用的文件模板（构建时复制到项目根目录后实现/补全）
+6. **05-implementation-steps.md** — 当前 design 到实现的 P0-P5 执行步骤
+7. **templates/** — 直接可用的文件模板（构建时复制到项目根目录后实现/补全）
 
 ---
 
@@ -62,8 +63,9 @@ design/
 ├── 02-self-evolution.md                 ← 自我进化规格
 ├── 03-content-agent.md                  ← 内容生成应用层
 ├── 04-knowledge-base.md                 ← 知识库层独立设计
+├── 05-implementation-steps.md            ← 当前实现步骤（P0-P5）
 └── templates/                           ← 构建时复制/实现的文件模板
-    ├── AGENTS.md                        ← 项目入口（完整内容，直接使用）
+    ├── AGENTS.md                        ← 学而思图书运营协作入口（完整内容，直接使用）
     ├── rules/
     │   ├── core-routing.md              ← 路由规则（完整内容，直接使用）
     │   └── core-safety.md              ← 安全规则（完整内容，直接使用）
@@ -127,11 +129,14 @@ P1–P3 验收需要一个最小素材集。构建时在项目根创建 `test-da
 - [ ] 输入 6 类对话，路由分类全部正确（闲聊/问答/搜索/设计/内容生成/执行）
 - [ ] `python skills/content-generate/scripts/content_runtime.py kb ingest --src <test-folder> --limit 3 --allow-write` 成功写入 LanceDB items 表
 - [ ] `python skills/content-generate/scripts/content_runtime.py kb search --query "数学思维" --topk 5` 返回有效结果
+- [ ] `python skills/content-generate/scripts/content_runtime.py text draft ... --allow-write` 可生成 `draft.json`
+- [ ] `python skills/content-generate/scripts/content_runtime.py plan build ... --allow-write` 可生成 `plan.json`
 - [ ] 完整走一次内容生成流程（需求→检索→文案→成品包→预览确认）
 - [ ] `python scripts/finalize.py record` 在 `workspace/daily/` 生成 session 文件
 - [ ] 显式 `finalize.py record` 可写 session；Stop hook 通过 `finalize.py hook` 做兜底且无实质信号时跳过
 - [ ] `python scripts/agent_learning_review.py` 在 `workspace/agent-learning/` 生成候选文件
-- [ ] 候选 accept/reject/modify 晋升流程可执行，并在晋升后跑 `validate.sh --quick`
+- [ ] `python scripts/agent_learning_review.py promote ...` 支持 reject/modify 与基于 patch 的 accept，并在 accept 后跑 `validate.sh --quick`
+- [ ] `python skills/content-generate/scripts/content_runtime.py kb legacy` 可检查旧 KB 栈残留，空残留可清理
 - [ ] `python apps/scheduler/scheduler.py` 启动无错误，jobs 按 jobs.json 注册成功
 
 ---
@@ -140,7 +145,7 @@ P1–P3 验收需要一个最小素材集。构建时在项目根创建 `test-da
 
 ```
 <project-root>/
-├── AGENTS.md                          ← 从 templates/AGENTS.md 复制
+├── AGENTS.md                          ← 从 templates/AGENTS.md 复制；当前为学而思图书运营协作入口
 ├── .env                               ← ANTHROPIC_API_KEY=... （进 .gitignore）
 ├── .gitignore
 ├── rules/

@@ -13,11 +13,16 @@
                                         [--topk N] [--json] [--no-log] [--no-touch]
   python content_runtime.py kb index   --rebuild [fts|vector|graph|all] --allow-write
   python content_runtime.py kb gc      --older-than 180d [--dry-run] --allow-write
+  python content_runtime.py kb legacy  [--allow-write]
+  python content_runtime.py text draft --brief <需求> --platform xiaohongshu|moments|wechat_group
+                                       [--sources <search.json>] [--out <draft.json>] --allow-write
+  python content_runtime.py plan build --draft <draft.json> --out <plan.json> --allow-write
   python content_runtime.py media probe    <file>
   python content_runtime.py media assemble --spec <plan.json> --out <dir> --allow-write
-  python content_runtime.py publish package --platform xiaohongshu|moments --in <dir> --allow-write
+  python content_runtime.py publish package --platform xiaohongshu|moments|wechat_group --in <dir> --allow-write
 
-写门禁：ingest / index / gc / assemble / package 必须带 --allow-write，否则仅 dry-run。
+写门禁：ingest / index / gc / legacy / text draft / plan build / assemble / package 写入时必须带
+--allow-write，否则仅 dry-run 或打印到 stdout。
 重依赖（lancedb / sentence-transformers / jieba / anthropic / PIL / pdfplumber / ffmpeg）按需延迟导入。
 """
 
@@ -28,6 +33,7 @@ import base64
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -70,6 +76,7 @@ MEDIA_TYPE = {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", 
 PLATFORM_SPEC = {
     "xiaohongshu": {"cover": (1080, 1080), "image": (1080, 1440), "max_images": 9},
     "moments": {"cover": (1080, 1080), "image": (1080, 1080), "max_images": 9},
+    "wechat_group": {"cover": (1080, 1080), "image": (1080, 1080), "max_images": 9},
 }
 CAPTION_PROMPT = (
     "描述这张图片的主题、视觉风格、构图要素，以及与教育/图书内容的关联。100字以内。"
@@ -108,6 +115,64 @@ def display_path(path: Path) -> str:
         return str(path.relative_to(ROOT))
     except ValueError:
         return str(path)
+
+
+def _read_json(path: Path):
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _write_json(path: Path, data) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def _normalize_sources(data) -> list[dict]:
+    if not data:
+        return []
+    if isinstance(data, dict):
+        for key in ("sources", "items", "hits", "results"):
+            if isinstance(data.get(key), list):
+                return [x for x in data[key] if isinstance(x, dict)]
+        return [data]
+    if isinstance(data, list):
+        return [x for x in data if isinstance(x, dict)]
+    return []
+
+
+def _load_sources(path: str | None) -> list[dict]:
+    if not path:
+        return []
+    return _normalize_sources(_read_json(Path(path)))
+
+
+def _source_line(src: dict) -> str:
+    title = (src.get("title") or Path(src.get("source_path") or "").stem or "素材").strip()
+    caption = re.sub(r"\s+", " ", src.get("caption") or "").strip()
+    return f"{title}：{caption[:80]}" if caption else title
+
+
+def _derive_tags(brief: str, sources: list[dict]) -> list[str]:
+    tags: list[str] = []
+    seed = f"{brief} " + " ".join(str(s.get("title") or "") for s in sources)
+    for word in ("数学思维", "亲子阅读", "图书推荐", "小学学习", "思维训练", "阅读启蒙"):
+        if word in seed:
+            tags.append(word)
+    tags += ["图书推荐", "亲子阅读"]
+    return list(dict.fromkeys(tags))[:5]
+
+
+def _draft_title(brief: str, platform: str) -> str:
+    topic = re.sub(r"[，。！？\s]+", "", brief)[:10] or "这本书"
+    if platform in ("moments", "wechat_group"):
+        return topic
+    return f"{topic}，适合和孩子一起读"[:20]
+
+
+def _guess_modality_from_source(src: dict) -> str | None:
+    if src.get("modality"):
+        return src["modality"]
+    sp = src.get("source_path")
+    return detect_modality(Path(sp)) if sp else None
 
 
 # ─────────────────────────── 标识 / 哈希 ───────────────────────────
@@ -858,6 +923,167 @@ def cmd_gc(args) -> int:
     return 0
 
 
+# ─────────────────────────── text / plan ───────────────────────────
+
+def _draft_body(brief: str, platform: str, style: str, sources: list[dict]) -> str:
+    facts = [_source_line(s) for s in sources[:3]]
+    if platform == "wechat_group":
+        lines = [
+            f"家长们好，今天想和大家分享一份关于「{brief}」的阅读/学习素材。",
+        ]
+        if facts:
+            lines.append(f"里面有个点很适合和孩子聊：{facts[0]}")
+        lines.append("这类内容不建议一次性讲太多，可以先陪孩子读一小段，再让孩子说说自己的理解。")
+        lines.append("有需要的家长可以先收藏，后面也可以按孩子年级和兴趣再细看。")
+        return "\n".join(lines)
+    if platform == "moments":
+        base = f"最近在看{brief}，里面有些内容挺适合和孩子一起聊。"
+        if facts:
+            base += f" 比如{facts[0]}。"
+        base += "不急着给孩子灌输结论，更适合当成一次轻松的亲子阅读和讨论。"
+        return base[:180]
+
+    lines = [
+        f"想给孩子找一份关于「{brief}」的阅读素材，可以先从这几本/这些内容看起。",
+        "",
+    ]
+    if facts:
+        lines.append("我会优先看这几个点：")
+        for i, item in enumerate(facts, 1):
+            lines.append(f"{i}. {item}")
+        lines.append("")
+    lines += [
+        f"整体更适合用「{style}」的方式讲：不硬推、不制造焦虑，先把书里有价值的知识点和孩子真实学习场景连起来。",
+        "如果孩子最近正好在做相关主题，可以把它当作一次课外阅读和讨论素材。",
+    ]
+    return "\n".join(lines)
+
+
+def cmd_text_draft(args) -> int:
+    sources = _load_sources(args.sources)
+    draft = {
+        "platform": args.platform,
+        "brief": args.brief,
+        "style": args.style,
+        "title": _draft_title(args.brief, args.platform),
+        "body_text": _draft_body(args.brief, args.platform, args.style, sources),
+        "tags": _derive_tags(args.brief, sources) if args.platform == "xiaohongshu" else [],
+        "sources": sources,
+        "drafted_at": now_iso(),
+    }
+    if not args.out:
+        print(json.dumps(draft, ensure_ascii=False, indent=2))
+        return 0
+    out = Path(args.out)
+    if not args.allow_write:
+        print(f"[dry-run] 将写入文案草稿：{out}（加 --allow-write 执行）")
+        print(json.dumps({k: draft[k] for k in ("platform", "title", "tags")}, ensure_ascii=False, indent=2))
+        return 0
+    _write_json(out, draft)
+    mark_runtime_activity(f"文案草稿：生成 {display_path(out)}")
+    print(f"[text] 文案草稿已写入：{out}")
+    return 0
+
+
+def cmd_plan_build(args) -> int:
+    draft = _read_json(Path(args.draft))
+    sources = _load_sources(args.sources) if args.sources else _normalize_sources(draft.get("sources"))
+    platform = args.platform or draft.get("platform") or "xiaohongshu"
+    plan = {
+        "type": platform,
+        "title": draft.get("title", Path(args.out).stem),
+        "tags": draft.get("tags", []),
+        "body_text": draft.get("body_text", ""),
+        "images": [],
+        "clips": [],
+        "skipped_assets": [],
+    }
+
+    for src in sources:
+        sp = src.get("source_path")
+        if not sp:
+            continue
+        path = Path(sp)
+        modality = _guess_modality_from_source(src)
+        if modality in ("image", "video") and not path.exists():
+            plan["skipped_assets"].append({"source_path": sp, "reason": "not_exists"})
+            continue
+        if modality == "image":
+            item = {"src": sp}
+            if "cover" not in plan:
+                plan["cover"] = item
+            else:
+                plan["images"].append(item)
+        elif modality == "video":
+            plan["clips"].append({"src": sp, "start": 0})
+
+    if not args.allow_write:
+        print(f"[dry-run] 将写入组装计划：{args.out}（加 --allow-write 执行）")
+        print(json.dumps(plan, ensure_ascii=False, indent=2))
+        return 0
+    out = Path(args.out)
+    _write_json(out, plan)
+    mark_runtime_activity(f"组装计划：生成 {display_path(out)}")
+    print(f"[plan] 组装计划已写入：{out}")
+    return 0
+
+
+# ─────────────────────────── legacy cleanup ───────────────────────────
+
+def _empty_dir(path: Path) -> bool:
+    return path.is_dir() and not any(path.iterdir())
+
+
+def cmd_legacy(args) -> int:
+    targets = [
+        {"path": KB_DIR / "catalog.db", "kind": "file"},
+        {"path": KB_DIR / "vector", "kind": "dir"},
+    ]
+    report = []
+    for target in targets:
+        path = target["path"]
+        exists = path.exists()
+        size = path.stat().st_size if path.is_file() else None
+        empty = (path.is_file() and size == 0) or _empty_dir(path)
+        action = "remove_empty" if exists and empty else ("keep_non_empty" if exists else "absent")
+        report.append({
+            "path": display_path(path),
+            "_path": path,
+            "kind": target["kind"],
+            "exists": exists,
+            "size": size,
+            "empty": empty,
+            "action": action,
+        })
+
+    if args.json:
+        public_report = [{k: v for k, v in item.items() if not k.startswith("_")} for item in report]
+        print(json.dumps(public_report, ensure_ascii=False, indent=2))
+    else:
+        for item in report:
+            print(f"{item['path']}: {item['action']}")
+
+    if not args.allow_write:
+        print("[dry-run] 未删除旧栈残留（加 --allow-write 删除空文件/空目录）")
+        return 0
+
+    removed = 0
+    for item in report:
+        if item["action"] != "remove_empty":
+            continue
+        path = item["_path"]
+        if path.is_file():
+            path.unlink()
+            removed += 1
+        elif _empty_dir(path):
+            path.rmdir()
+            removed += 1
+    if removed:
+        mark_runtime_activity(f"KB legacy：清理 {removed} 个空旧栈残留")
+    print(f"[legacy] 已清理 {removed} 个空旧栈残留；非空残留保持不动")
+    return 0
+
+
 # ─────────────────────────── media ───────────────────────────
 
 def cmd_probe(args) -> int:
@@ -985,7 +1211,7 @@ def _build_checklist(platform: str, meta: dict, order: list[str]) -> str:
     body = meta.get("body_text", "")
     tags = meta.get("tags", [])
     sources = meta.get("sources", [])
-    pname = {"xiaohongshu": "小红书", "moments": "朋友圈"}.get(platform, platform)
+    pname = {"xiaohongshu": "小红书", "moments": "朋友圈", "wechat_group": "家长群"}.get(platform, platform)
     lines = [f"# 发布清单 - {title}", "", f"## 平台\n{pname}", ""]
     if platform == "xiaohongshu":
         lines += [f"## 标题\n{title}", ""]
@@ -1092,11 +1318,35 @@ def build_parser() -> argparse.ArgumentParser:
     gc.add_argument("--allow-write", action="store_true")
     gc.set_defaults(func=cmd_gc)
 
+    legacy = kb.add_parser("legacy", help="检查/清理旧 KB 栈残留（只删除空残留）")
+    legacy.add_argument("--allow-write", action="store_true")
+    legacy.add_argument("--json", action="store_true")
+    legacy.set_defaults(func=cmd_legacy)
+
     rel = kb.add_parser("related")
     rel.add_argument("--id", required=True)
     rel.add_argument("--topk", type=int, default=10)
     rel.add_argument("--json", action="store_true")
     rel.set_defaults(func=cmd_related)
+
+    text = sub.add_parser("text", help="文案草稿").add_subparsers(dest="action", required=True)
+    draft = text.add_parser("draft")
+    draft.add_argument("--brief", required=True)
+    draft.add_argument("--platform", required=True, choices=["xiaohongshu", "moments", "wechat_group"])
+    draft.add_argument("--style", default="知识科普")
+    draft.add_argument("--sources", help="kb search --json 的结果文件")
+    draft.add_argument("--out", help="输出 draft.json；缺省时打印到 stdout")
+    draft.add_argument("--allow-write", action="store_true")
+    draft.set_defaults(func=cmd_text_draft)
+
+    plan = sub.add_parser("plan", help="组装计划").add_subparsers(dest="action", required=True)
+    build = plan.add_parser("build")
+    build.add_argument("--draft", required=True)
+    build.add_argument("--sources", help="覆盖 draft 中 sources 的素材 JSON")
+    build.add_argument("--platform", choices=["xiaohongshu", "moments", "wechat_group"])
+    build.add_argument("--out", required=True)
+    build.add_argument("--allow-write", action="store_true")
+    build.set_defaults(func=cmd_plan_build)
 
     media = sub.add_parser("media", help="媒体").add_subparsers(dest="action", required=True)
     pr = media.add_parser("probe")
@@ -1110,7 +1360,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     pub = sub.add_parser("publish", help="发布打包").add_subparsers(dest="action", required=True)
     pk = pub.add_parser("package")
-    pk.add_argument("--platform", required=True, choices=["xiaohongshu", "moments"])
+    pk.add_argument("--platform", required=True, choices=["xiaohongshu", "moments", "wechat_group"])
     pk.add_argument("--in", dest="in_dir", required=True)
     pk.add_argument("--allow-write", action="store_true")
     pk.set_defaults(func=cmd_package)

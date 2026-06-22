@@ -1,7 +1,7 @@
 # 内容生成 Agent 架构概览
 
 > 实现状态：✅ 基线已构建于**仓库根目录**（AGENTS.md / rules / skills / scripts / apps）；
-> 目标态闭环仍需补齐文案/plan 脚本化、自学习晋升命令和端到端验证。
+> 文案/plan CLI、自学习 promote 命令与旧 KB 空残留清理入口已补齐；目标态仍需真实素材端到端验证与模板库沉淀。
 > design_state：architecture（全部分叉与参数已锁定）。
 > 本文只给「全景 + 锁定决策 + 分阶段路线」，**不重复细节**——分层规格见 `01-04`，可直接复制的产物见 `templates/`。
 
@@ -9,11 +9,11 @@
 
 ## 系统概述
 
-运行在本地 macOS 上的 **AI 内容生成 Agent**：
+运行在本地 macOS 上的 **学而思图书运营 AI 内容生成 Agent**：
 
 - 接受日常对话输入，按语义自动分类并路由到对应处理流程
 - 理解本地知识库（文档/图片/视频），按内容需求检索契合素材
-- 用 Claude 生成文案/脚本/分镜，组装图文或短视频成品包
+- 用 AI/runtime 生成可编辑文案草稿、组装图文或短视频成品包
 - 交付物落本地目录，发布前人工预览确认（无自动发帖）
 - 每轮任务结束自动记录，定期自学习并晋升规则
 
@@ -30,8 +30,8 @@
 | 内容生成本质 | **文案生成 + 媒体检索组装**：文案与 caption 可由 Claude / Anthropic API 生成；图片/视频从 KB 检索既有素材再组装，**不生成** |
 | 触发机制 | **输入路由软**（规则 + 模型判语义）+ **收尾/学习硬**（hook + 调度，确定性） |
 | 知识库 | **LanceDB**（向量+标量+FTS 同库）+ **bge-small-zh-v1.5** 向量 + **jieba** 中文分词 FTS + **document-concept 二部图**；**三路 RRF**（向量∥FTS∥图召回）+ **bge-reranker-base** 精排（详见 04） |
-| 内容领域 | **教育类图书**（影响检索相关性与文案模板：书单/读书笔记/知识卡片等） |
-| 交付去向 | **小红书 + 朋友圈**：产平台成品包 + 预览确认后手动发布 |
+| 内容领域 | **学而思教育类图书运营**（影响检索相关性与文案模板：书单/读书笔记/知识卡片/家长群话术等） |
+| 交付去向 | **小红书 + 朋友圈 + 家长群话术**：产平台成品包 + 预览确认后手动发布 |
 | 素材量级 | **千级**（半年窗口）；LanceDB 轻松承载；半年清理 job 控制规模 |
 | 目标机器 | macOS **M1Pro 16G**：模型内存峰值 ~2GB，宽裕（见 04 §9） |
 
@@ -71,15 +71,17 @@
 | L1 输入路由 | 语义分类 → 处理模式 | `rules/core-routing.md`、03 §路由分类 |
 | L2 处理 skill | content-generate 编排（处理类，router 触发） | `templates/skills/content-generate/SKILL.md`、03 |
 | L3 收尾 skill | finalize 沉淀 session（收尾类，结束规则/Stop hook 转交） | `templates/skills/finalize/SKILL.md`、**01 §5** |
-| L4 自学习 | 候选生成已实现；人工晋升流程待命令化 | **02**（自我进化规格，候选 5 类含 kb-tuning） |
-| L5 知识库 | ingest / hybrid search / gc | **04**（知识库层独立设计） |
-| L6 内容组装 | media assemble / publish package | 03 §内容组装规格 |
+| L4 自学习 | 候选生成 + promote 状态/patch 晋升命令 | **02**（自我进化规格，候选 5 类含 kb-tuning） |
+| L5 知识库 | ingest / hybrid search / gc / legacy | **04**（知识库层独立设计） |
+| L6 内容组装 | text draft / plan build / media assemble / publish package | 03 §内容组装规格 |
 
 > 上层（L1-L4/L6）通过 `content-runtime kb search` 消费 KB，**对 L5 内部实现（LanceDB）透明**。
 
 ---
 
-## 分阶段实现（P0 → P4，按顺序构建）
+## 分阶段实现（P0 → P5，按顺序构建）
+
+完整执行步骤见 `05-implementation-steps.md`；本节只保留阶段摘要。
 
 ### P0 基础骨架（大脑层 + 路由 + 收尾）
 构建：`AGENTS.md`、`rules/core-routing.md`、`rules/core-safety.md`、`SKILL.md`、`scripts/finalize.py`、Stop hook。
@@ -89,18 +91,22 @@
 构建：`content_runtime.py` 的 `init` / `kb ingest`(doc+image) / `kb search`；**LanceDB 表 + bge-small-zh-v1.5 向量 + jieba-FTS + RRF + reranker**（见 04）。
 验证：`kb ingest --src ./test-data --allow-write` 写入 items 表；`kb search --query "数学思维" --topk 5 --json` 经 hybrid+rerank 返回并人工回读核对。
 
-### P2 图文组装
-构建：`media assemble`（Pillow 拼版）、`publish package`（小红书/朋友圈成品包）、SKILL.md 完整流程。
-验证：端到端出一组小红书图文，检查 outputs/ 成品包结构。
+### P2 文案草稿 + 图文组装
+构建：`text draft`（文案草稿 JSON）、`plan build`（组装计划 JSON）、`media assemble`（Pillow 拼版）、`publish package`（小红书/朋友圈/家长群成品包）、SKILL.md 完整流程。
+验证：端到端出一组成品，检查 `draft.json` / `plan.json` / outputs 成品包结构。
 
 ### P3 视频 ingestion + 短视频组装
 构建：`kb ingest --modality video`（ffmpeg 抽帧 + Claude vision caption）、`media assemble` 短视频时间线。
 验证：端到端出一条短视频（KB 视频片段裁剪拼接；可选字幕烧录；正文文案见 publish-checklist）。
 
 ### P4 调度 + 自学习闭环
-已实现：`apps/scheduler/scheduler.py`（APScheduler 读 jobs.json）、`scripts/agent_learning_review.py` 候选生成、`jobs.json`（weekly_learn / media_ingest / kb_gc）。
-待补：候选 accept/reject/modify 晋升命令与回滚。
-验证：触发一次 `agent_learning_review.py` 生成候选；人工确认一条并晋升到 rules/。
+已实现：`apps/scheduler/scheduler.py`（APScheduler 读 jobs.json）、`scripts/agent_learning_review.py` 候选生成与 `promote` 命令、`jobs.json`（weekly_learn / media_ingest / kb_gc）。
+待补：真实候选样例回归集、非空旧 KB 迁移脚本。
+验证：触发一次 `agent_learning_review.py` 生成候选；用 `promote` reject/modify 更新状态，accept 通过明确 patch 晋升并跑 quick 校验。
+
+### P5 验证 + 收尾 + 发布
+构建：无新增 runtime；执行 quick/e2e 验证、核心 smoke、finalize、Git 提交与授权 push。
+验证：`validate.sh --quick` 通过；e2e 环境缺口明确记录；提交已推送远端。
 
 ---
 
@@ -113,7 +119,7 @@
 | 输出收尾 | **硬** | 显式 `finalize.py record`；`Stop`/`notify` hook → `finalize.py hook` 兜底 |
 | 媒体 ingest | **硬（定时）** | scheduler job 每天 02:00 后台批处理 |
 | 自学习 | **硬（定时）** | scheduler job 每周一 → `agent_learning_review.py` |
-| 规则晋升 | 半（人确认） | 设计目标：候选 → 用户 accept → 写 rules/memory；当前待补命令化 |
+| 规则晋升 | 半（人确认） | 候选 → 用户 accept → 明确 patch → `agent_learning_review.py promote` → quick 校验 |
 
 ---
 
@@ -127,7 +133,7 @@
 
 ## 安全与验证
 
-- 写门禁：`kb ingest/index/gc`、`media assemble`、`publish package` 必须 `--allow-write`，否则 dry-run。
+- 写门禁：`kb ingest/index/gc/legacy`、`text draft` 写文件、`plan build` 写文件、`media assemble`、`publish package` 必须 `--allow-write`，否则 dry-run 或 stdout 预览。
 - `kb search` 默认写 `search-log.jsonl` 与 `last_hit_at`，用于自学习和清理；严格只读用 `--no-log --no-touch`。
 - 发布门禁：外部平台发布前预览确认，不自动发帖。
 - 敏感信息：API key 存 `.env`（进 `.gitignore`）；不把 media-store 绝对路径写入对外产物。

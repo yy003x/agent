@@ -79,8 +79,12 @@ echo ""
 echo "[content-runtime CLI]"
 check "content_runtime.py --help 可执行" "python3 skills/content-generate/scripts/content_runtime.py --help"
 check "content_runtime.py kb search --help 可执行" "python3 skills/content-generate/scripts/content_runtime.py kb search --help"
+check "content_runtime.py kb legacy --help 可执行" "python3 skills/content-generate/scripts/content_runtime.py kb legacy --help"
+check "content_runtime.py text draft --help 可执行" "python3 skills/content-generate/scripts/content_runtime.py text draft --help"
+check "content_runtime.py plan build --help 可执行" "python3 skills/content-generate/scripts/content_runtime.py plan build --help"
 check "finalize.py --help 可执行" "python3 scripts/finalize.py --help"
 check "agent_learning_review.py --dry-run 可执行" "python3 scripts/agent_learning_review.py --dry-run"
+check "agent_learning_review.py promote --help 可执行" "python3 scripts/agent_learning_review.py promote --help"
 
 if [ "$MODE" = "e2e" ]; then
   echo ""

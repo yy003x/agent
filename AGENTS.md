@@ -26,6 +26,14 @@
      执行中遇新分叉再停下同步。
 - 动手前先看相关图书素材、我的历史文案 / 爆款风格、目标平台规则，沿用我的调性；检索素材用知识库；只做必要内容，顺手的想法先说、不擅自扩大；拿不准长期有效的只给候选。
 
+## 本地 Agent 运行约定
+
+- 运行事实源：`rules/core-routing.md` 管输入分类，`rules/core-safety.md` 管安全边界，`memory/summary.md` 管当前状态。
+- 内容生成类任务触发 `skills/content-generate/SKILL.md`；实质性任务结束后用 `skills/finalize/SKILL.md` / `scripts/finalize.py` 记录 session。
+- 写操作优先走 `skills/content-generate/scripts/content_runtime.py`，遵守 `--allow-write` 门禁；发布只产成品包和预览，不自动发帖。
+- 关键目录：`workspace/kb/` 是本地知识库，`workspace/daily/` 是 session 事实源，`outputs/` 是草稿/成品包，`runs/` 是运行日志；这些默认不进 Git。
+- 若 `workspace/resume/` 有恢复点，先提示用户是否继续，不自动恢复。
+
 ## 验证与交付
 
 内容产出后按顺序自查，无法判断时说明原因：

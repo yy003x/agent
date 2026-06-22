@@ -316,10 +316,16 @@ content-runtime kb ingest   --src <folder> [--modality ...] [--limit N] [--resum
 content-runtime kb search   --query "<text>" [--modality ...] [--topk N] [--json] [--no-log] [--no-touch]
 content-runtime kb index    --rebuild [fts|vector|graph|all] --allow-write
 content-runtime kb gc       --older-than 180d [--dry-run] --allow-write
+content-runtime kb legacy   [--json] [--allow-write]            # 检查/清理空旧栈残留
 content-runtime kb related  --id <doc_id> [--topk N] [--json]   # 二部图扩散：同 concept 的兄弟 doc
 ```
 
 上层（路由问答、content-generate skill）调用方式不变——**KB 内部从 ChromaDB 换到 LanceDB 对上层透明**。
+
+`kb legacy` 只处理旧栈残留：
+- `catalog.db` 空文件：可在 `--allow-write` 下删除。
+- `vector/` 空目录：可在 `--allow-write` 下删除。
+- 非空旧栈残留：只报告 `keep_non_empty`，不删除；如需迁移，另写一次性导出/重 ingest 脚本。
 
 ---
 

@@ -1,6 +1,6 @@
 # 内容生成 Agent 应用层设计
 
-本文描述在通用框架（01-framework.md）之上的具体应用：**教育类图书内容生成 Agent**。
+本文描述在通用框架（01-framework.md）之上的具体应用：**学而思教育类图书内容生成 Agent**。
 涵盖：路由各分类的完整行为、知识库层、content-runtime、内容组装、平台规格。
 
 ---
@@ -190,23 +190,33 @@ KB 域：
   kb search   --query "<text>" [--modality doc|image|video|all] [--topk N] [--json] [--no-log] [--no-touch]
   kb index    --rebuild [fts|vector|graph|all] --allow-write
   kb gc       --older-than 180d [--dry-run] --allow-write
+  kb legacy   [--json] [--allow-write]          # 检查/清理空旧栈残留 catalog.db / vector/
   kb related  --id <doc_id> [--topk N] [--json]      # 二部图扩散：取同 concept 的兄弟 doc
+
+文案域：
+  text draft  --brief "<需求摘要>" --platform xiaohongshu|moments|wechat_group
+              [--style <风格>] [--sources <sources.json>] [--out <draft.json>] [--allow-write]
+
+计划域：
+  plan build  --draft <draft.json> [--sources <sources.json>] [--platform xiaohongshu|moments|wechat_group]
+              --out <plan.json> [--allow-write]
 
 媒体域：
   media probe  <file>
   media assemble --spec <plan.json> --out <dir> --allow-write
 
 发布域：
-  publish package --platform xiaohongshu|moments --in <dir> --allow-write
+  publish package --platform xiaohongshu|moments|wechat_group --in <dir> --allow-write
 
 初始化：
   init        初始化 LanceDB 库（items + concepts + graph_edges 表）（首次使用时运行）
 ```
 
-**写门禁**：`kb ingest`、`kb index`、`kb gc`、`media assemble`、`publish package` 必须带 `--allow-write` 参数，否则只做 dry-run 并提示。
+**写门禁**：`kb ingest`、`kb index`、`kb gc`、`kb legacy`、`text draft --out`、`plan build`、`media assemble`、`publish package` 必须带 `--allow-write` 参数，否则只做 dry-run / stdout 预览并提示。
 `kb search` 默认会写 `search-log.jsonl` 和 `last_hit_at`，用于自学习与清理；严格只读时加 `--no-log --no-touch`。
 写操作会标记 `workspace/.finalize-activity.json`，供 Stop hook 兜底记录 ignored 运行产物。
 `kb ingest` 若任一文件失败返回非 0；需要容忍部分失败时由调用方显式处理。
+`kb legacy --allow-write` 只删除空的 `catalog.db` / 空 `vector/`；非空旧栈残留只报告，需另走迁移脚本。
 
 ---
 
@@ -216,7 +226,7 @@ KB 域：
 
 ```
 Step 1  解析需求
-  提取：主题 / 目标平台（小红书|朋友圈|通用）/ 形态（图文|短视频|组合）
+  提取：主题 / 目标平台（小红书|朋友圈|家长群|通用）/ 形态（图文|短视频|话术|组合）
        风格（知识科普|情感共鸣|书单推荐|读书笔记）/ 数量
 
 Step 2  检索素材
@@ -230,26 +240,32 @@ Step 3  回读事实源
   （索引是候选，原文件是事实源，必须回读）
 
 Step 4  生成文案
-  用 Claude 生成，输入：
-  - 需求描述（主题/平台/风格/约束）
-  - 命中素材摘要（caption + 书名 + 核心内容）
-  输出：平台格式文案 + plan.json（素材组装方案）
-  （prompt 模板见下文「平台文案 Prompt 模板」）
-  当前实现：由 AI 运行时 inline 生成；`content_runtime.py` 暂未提供 `text draft` / `plan build` 命令。
+  python content_runtime.py text draft \
+    --brief "<需求摘要>" --platform xiaohongshu --style "<风格>" \
+    --sources outputs/YYYY-MM-DD/content/<slug>/sources.json \
+    --out outputs/YYYY-MM-DD/content/<slug>/draft.json \
+    --allow-write
+  AI 可在 draft.json 基础上 inline 润色，但必须回读素材事实，不编造。
 
-Step 5  组装
+Step 5  生成 plan
+  python content_runtime.py plan build \
+    --draft outputs/YYYY-MM-DD/content/<slug>/draft.json \
+    --out outputs/YYYY-MM-DD/content/<slug>/plan.json \
+    --allow-write
+
+Step 6  组装
   python content_runtime.py media assemble \
     --spec plan.json --out outputs/YYYY-MM-DD/content/<slug>/ --allow-write
 
-Step 6  打包
+Step 7  打包
   python content_runtime.py publish package \
     --platform xiaohongshu --in outputs/YYYY-MM-DD/content/<slug>/ --allow-write
 
-Step 7  预览确认
+Step 8  预览确认
   列出成品包文件树 + 文案全文
   等用户说「发布」后才进行（手动）发布，AI 不自动发帖
   
-Step 8  收尾
+Step 9  收尾
   python scripts/finalize.py record --skill content-generate --status success
 ```
 

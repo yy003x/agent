@@ -72,41 +72,33 @@ python skills/content-generate/scripts/content_runtime.py kb search \
 - 图片：读取 catalog 中的 `caption`（已有 Claude vision 描述，不重复调 API）
 - 视频：读取 `transcript`（帧 caption 拼接）
 
-### 步骤 5：生成文案
+### 步骤 5：生成文案草稿
 
-调用 Claude API 生成文案，使用对应平台的 prompt 模板：
+先把选中素材整理成 `sources.json`，再调用 runtime 生成可编辑草稿：
 
-**小红书 prompt（`03-content-agent.md` 中有完整模板）**：
-- 输入：需求描述 + 选中素材摘要（caption + 核心内容）
-- 输出：标题 + 正文 + 标签 + 配图建议
+```bash
+python skills/content-generate/scripts/content_runtime.py text draft \
+  --brief "<用户需求摘要>" \
+  --platform xiaohongshu \
+  --style "<知识科普|情感共鸣|书单推荐|读书笔记>" \
+  --sources outputs/YYYY-MM-DD/content/<slug>/sources.json \
+  --out outputs/YYYY-MM-DD/content/<slug>/draft.json \
+  --allow-write
+```
 
-**朋友圈 prompt**：
-- 输入：需求描述 + 素材摘要
-- 输出：文案（80-150字）+ 配图建议
-
-当前文案生成由 AI 运行时 inline 完成；`content_runtime.py` 暂未提供 `text draft` 命令。
-展示生成的文案，询问：「文案是否满意？（可要求修改风格/长度/角度后重新生成）」
+展示 `draft.json` 中的标题、正文、标签；AI 可基于草稿 inline 润色，但不得编造素材事实。
+询问：「文案是否满意？（可要求修改风格/长度/角度后重新生成或微调）」
 等用户确认后继续。
 
 ### 步骤 6：生成 plan.json
 
-根据用户确认的文案和素材选择，生成组装方案：
+根据确认后的 `draft.json` 和素材选择生成组装方案：
 
-```json
-{
-  "type": "xiaohongshu",
-  "slug": "<内容标题-日期>",
-  "cover": {
-    "src": "<选中图片的 source_path>",
-    "crop": [0, 0, 1080, 1080]
-  },
-  "images": [
-    {"src": "<path>", "resize": [1080, 1080]},
-    {"src": "<path>", "resize": [1080, 1440]}
-  ],
-  "clips": [],
-  "body_text": "<确认后的文案正文>"
-}
+```bash
+python skills/content-generate/scripts/content_runtime.py plan build \
+  --draft outputs/YYYY-MM-DD/content/<slug>/draft.json \
+  --out outputs/YYYY-MM-DD/content/<slug>/plan.json \
+  --allow-write
 ```
 
 展示 plan.json，询问用户确认后进入组装。
@@ -115,7 +107,7 @@ python skills/content-generate/scripts/content_runtime.py kb search \
 
 ```bash
 python skills/content-generate/scripts/content_runtime.py media assemble \
-  --spec /tmp/plan.json \
+  --spec outputs/YYYY-MM-DD/content/<slug>/plan.json \
   --out outputs/YYYY-MM-DD/content/<slug>/ \
   --allow-write
 ```

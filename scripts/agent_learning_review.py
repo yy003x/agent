@@ -9,8 +9,11 @@
 用法：
   python scripts/agent_learning_review.py [--days N]   默认 7
   python scripts/agent_learning_review.py --dry-run     打印候选不写文件
+  python scripts/agent_learning_review.py promote --file <candidates.md> --candidate N \
+      --decision accept|reject|modify [--patch <diff>] --allow-write
 
-硬约束：只生成候选，不修改任何 rules/skill/memory；单次上限 5 条；已覆盖模式去重。
+硬约束：generate 只生成候选；promote accept 只按明确 patch 晋升，不从自然语言建议自动改文件。
+单次生成上限 5 条；已覆盖模式去重。
 """
 
 from __future__ import annotations
@@ -18,6 +21,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import subprocess
 import sys
 from collections import Counter, defaultdict
 from datetime import datetime, timedelta, timezone
@@ -219,7 +223,116 @@ def render(cands: list[dict], days: int, n_session: int, n_search: int) -> str:
     return "\n".join(lines)
 
 
-def main(argv: list[str] | None = None) -> int:
+def _candidate_span(text: str, number: int) -> tuple[int, int]:
+    marker = re.search(rf"^## 候选 #{number}\s*$", text, re.MULTILINE)
+    if not marker:
+        raise ValueError(f"未找到候选 #{number}")
+    next_marker = re.search(r"^## 候选 #\d+\s*$", text[marker.end():], re.MULTILINE)
+    end = marker.end() + next_marker.start() if next_marker else len(text)
+    return marker.start(), end
+
+
+def _candidate_target(block: str) -> str:
+    m = re.search(r"- \*\*晋升目标\*\*: `([^`]+)`", block)
+    return m.group(1).strip() if m else ""
+
+
+def _replace_candidate_status(path: Path, number: int, status: str, note: str = "") -> None:
+    text = path.read_text(encoding="utf-8")
+    start, end = _candidate_span(text, number)
+    block = text[start:end]
+    new_block, n = re.subn(r"- \*\*状态\*\*: .+", f"- **状态**: {status}", block, count=1)
+    if n == 0:
+        new_block = block.rstrip() + f"\n- **状态**: {status}\n"
+    if note:
+        new_block = new_block.rstrip() + f"\n- **处理备注**: {note}\n"
+    path.write_text(text[:start] + new_block + text[end:], encoding="utf-8")
+
+
+def _apply_patch_file(patch: Path, reverse: bool = False) -> subprocess.CompletedProcess:
+    cmd = ["git", "apply"]
+    if reverse:
+        cmd.append("--reverse")
+    cmd.append(str(patch))
+    return subprocess.run(cmd, cwd=ROOT, text=True, capture_output=True)
+
+
+def _quick_validate() -> subprocess.CompletedProcess:
+    return subprocess.run(["bash", "scripts/validate.sh", "--quick"], cwd=ROOT, text=True, capture_output=True)
+
+
+def cmd_promote(argv: list[str]) -> int:
+    ap = argparse.ArgumentParser(description="处理自学习候选状态或按 patch 晋升")
+    ap.add_argument("--file", required=True, help="workspace/agent-learning/candidates-YYYY-MM-DD.md")
+    ap.add_argument("--candidate", type=int, required=True)
+    ap.add_argument("--decision", choices=["accept", "reject", "modify"], required=True)
+    ap.add_argument("--patch", help="accept 时要应用的 unified diff；不从自然语言建议自动改文件")
+    ap.add_argument("--note", default="")
+    ap.add_argument("--allow-write", action="store_true")
+    args = ap.parse_args(argv)
+
+    cfile = Path(args.file)
+    text = cfile.read_text(encoding="utf-8")
+    start, end = _candidate_span(text, args.candidate)
+    block = text[start:end]
+    target = _candidate_target(block)
+
+    if not args.allow_write:
+        print(f"[dry-run] 候选 #{args.candidate} decision={args.decision} target={target or '(unknown)'}")
+        if args.decision == "accept":
+            print("[dry-run] accept 需要 --patch，执行时会 git apply + validate.sh --quick")
+        return 0
+
+    if args.decision in ("reject", "modify"):
+        status = "rejected" if args.decision == "reject" else "modified"
+        _replace_candidate_status(cfile, args.candidate, status, args.note)
+        print(f"[learn] 候选 #{args.candidate} 状态已更新为 {status}")
+        return 0
+
+    if not args.patch:
+        print("[learn] accept 必须提供 --patch，避免按自然语言建议自动改规则/skill", file=sys.stderr)
+        return 2
+    if target == "rules/core-safety.md":
+        print("[learn] 拒绝自动晋升 rules/core-safety.md", file=sys.stderr)
+        _replace_candidate_status(cfile, args.candidate, "failed", "目标为 core-safety，按安全边界拒绝自动晋升")
+        return 2
+
+    patch = Path(args.patch)
+    patch_text = patch.read_text(encoding="utf-8", errors="ignore")
+    if "rules/core-safety.md" in patch_text:
+        print("[learn] patch 涉及 rules/core-safety.md，拒绝自动晋升", file=sys.stderr)
+        _replace_candidate_status(cfile, args.candidate, "failed", "patch 涉及 core-safety")
+        return 2
+
+    check = subprocess.run(["git", "apply", "--check", str(patch)], cwd=ROOT, text=True, capture_output=True)
+    if check.returncode != 0:
+        print(check.stderr or check.stdout, file=sys.stderr)
+        _replace_candidate_status(cfile, args.candidate, "failed", "patch apply --check 失败")
+        return check.returncode
+
+    applied = _apply_patch_file(patch)
+    if applied.returncode != 0:
+        print(applied.stderr or applied.stdout, file=sys.stderr)
+        _replace_candidate_status(cfile, args.candidate, "failed", "patch apply 失败")
+        return applied.returncode
+
+    validation = _quick_validate()
+    if validation.returncode != 0:
+        rollback = _apply_patch_file(patch, reverse=True)
+        _replace_candidate_status(cfile, args.candidate, "failed", "quick 校验失败，已尝试回滚 patch")
+        print(validation.stdout)
+        print(validation.stderr, file=sys.stderr)
+        if rollback.returncode != 0:
+            print(rollback.stderr or rollback.stdout, file=sys.stderr)
+        return validation.returncode
+
+    _replace_candidate_status(cfile, args.candidate, "accepted", args.note or "patch 已应用且 quick 校验通过")
+    print(validation.stdout)
+    print(f"[learn] 候选 #{args.candidate} 已晋升并通过 quick 校验")
+    return 0
+
+
+def cmd_generate(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="自学习候选生成")
     ap.add_argument("--days", type=int, default=7)
     ap.add_argument("--dry-run", action="store_true")
@@ -244,6 +357,15 @@ def main(argv: list[str] | None = None) -> int:
     out.write_text(content, encoding="utf-8")
     print(f"[learn] 候选已写入：{out.relative_to(ROOT)}（{len(cands)} 条）")
     return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    argv = list(sys.argv[1:] if argv is None else argv)
+    if argv and argv[0] == "promote":
+        return cmd_promote(argv[1:])
+    if argv and argv[0] == "generate":
+        argv = argv[1:]
+    return cmd_generate(argv)
 
 
 if __name__ == "__main__":
