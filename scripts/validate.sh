@@ -61,6 +61,8 @@ check "finalize.py 语法正常" "python3 -m py_compile scripts/finalize.py"
 check "agent_learning_review.py 语法正常" "python3 -m py_compile scripts/agent_learning_review.py"
 check "content_runtime.py 语法正常" "python3 -m py_compile skills/content-generate/scripts/content_runtime.py"
 check "scheduler.py 语法正常" "python3 -m py_compile apps/scheduler/scheduler.py"
+check "orchestrator.py 语法正常" "python3 -m py_compile apps/agent/orchestrator.py"
+check "brain.py 语法正常" "python3 -m py_compile apps/agent/brain.py"
 
 echo ""
 echo "[配置格式]"
