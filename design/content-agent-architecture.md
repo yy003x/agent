@@ -9,16 +9,17 @@
 
 ## 系统概述
 
-运行在本地 macOS 上的 **学而思图书运营 AI 内容生成 Agent**：
+运行在本地 macOS 上的 **学而思图书运营 Agent 工作台**：
 
 - 接受日常对话输入，按语义自动分类并路由到对应处理流程
+- 整理大量产品资料、文档、图片和视频，并统一纳入本地知识库
 - 理解本地知识库（文档/图片/视频），按内容需求检索契合素材
 - 用 AI/runtime 生成可编辑文案草稿、组装图文或短视频成品包
 - 交付物落本地目录，发布前人工预览确认（无自动发帖）
 - 每轮任务结束自动记录，定期自学习并晋升规则
 
 **不做的事**：不生成图片/视频（无 gen 模型），不调用外部发布 API，不运行独立远端服务，不自动发布。
-文案与图片/视频 caption 可调用 Claude / Anthropic API。
+文案、问答、需求抽取与图片/视频 caption 的智能步骤通过工作台 runtime 完成：GUI 工作台用 tmux 托管真实 `codex` / `claude` CLI 会话，会话完成以 result file 为准；默认 `codex_cli`，`claude_cli` 通过配置启用；不使用 `codex exec` / `claude -p` 作为工作台 runtime。LLM API backend 仅作为未来可选扩展。
 
 ---
 
@@ -26,8 +27,9 @@
 
 | 维度 | 选择 |
 |---|---|
-| 运行形态 | **本地运行与本地存储**：AI 运行时作大脑，KB/检索/媒体用本地脚本；不自建远端服务、无 GPU |
-| 内容生成本质 | **文案生成 + 媒体检索组装**：文案与 caption 可由 Claude / Anthropic API 生成；图片/视频从 KB 检索既有素材再组装，**不生成** |
+| 运行形态 | **本地运行与本地存储**：工作台负责 GUI/CLI 编排，KB/检索/媒体用本地脚本；不自建远端服务、无 GPU |
+| 智能 runtime | **工作台主路径**：`tmux_cli`（真实 codex/claude 交互会话，codex 默认、claude 配置）、`offline_template`（兜底）；`llm_api` 是未来可选扩展 |
+| 内容生成本质 | **文案生成 + 媒体检索组装**：文案与 caption 由配置的智能 runtime 生成；图片/视频从 KB 检索既有素材再组装，**不生成** |
 | 触发机制 | **输入路由软**（规则 + 模型判语义）+ **收尾/学习硬**（hook + 调度，确定性） |
 | 知识库 | **LanceDB**（向量+标量+FTS 同库）+ **bge-small-zh-v1.5** 向量 + **jieba** 中文分词 FTS + **document-concept 二部图**；**三路 RRF**（向量∥FTS∥图召回）+ **bge-reranker-base** 精排（详见 04） |
 | 内容领域 | **学而思教育类图书运营**（影响检索相关性与文案模板：书单/读书笔记/知识卡片/家长群话术等） |
@@ -40,21 +42,21 @@
 ## 总体架构
 
 ```text
-┌──────────────────────── 大脑层（AI 运行时）─────────────────────────────┐
+┌──────────────────────── 工作台 / 大脑层（AI runtime）────────────────────┐
 │  输入 → [软] 路由规则（rules/core-routing.md）                          │
 │           ├─ 闲聊 / 一次性问答         → 直接回答，不触发 skill          │
 │           ├─ 搜索 / 调研               → research（读 KB 回答）          │
 │           ├─ 设计 / 方案 / 规划        → design（讨论后落文件）          │
 │           ├─ 执行 / 代码 / 任务        → execute（改文件提交）           │
 │           └─ 内容生成 / 出图文视频     → content-generate skill          │
-│  输出 → [硬] 转交 finalize skill（显式 record + Stop hook 兜底）→ session │
+│  输出 → [硬] 转交 workbench-finalizer skill（显式 record + Stop hook 兜底）→ session │
 │  [硬] scheduler 定时 → agent_learning_review.py → 候选 → 规则晋升      │
 └───────────────────────────────┬────────────────────────────────────────┘
                                  │ content-runtime（本地编排：检索/ingest/组装）
             ┌────────────────────┴────────────────────┐
 ┌───────────▼───────────────┐          ┌──────────────▼──────────────┐
 │  本地 KB 层（LanceDB）     │          │   内容组装（无生成模型）     │
-│  items 表                  │          │  文案: Claude API 生成       │
+│  items 表                  │          │  文案: tmux CLI runtime 生成 │
 │    ├─ vector(bge-small-zh) │◄─检索────┤  图片/视频: 取 KB 既有素材   │
 │    ├─ text_seg(jieba FTS)  │ 三路 RRF │  组装: 图文拼版/短视频时间线  │
 │    └─ concepts 二部图召回  │  +rerank │  轻编辑: 裁剪/可选字幕(ffmpeg) │
@@ -70,7 +72,7 @@
 |---|---|---|
 | L1 输入路由 | 语义分类 → 处理模式 | `rules/core-routing.md`、03 §路由分类 |
 | L2 处理 skill | content-generate 编排（处理类，router 触发） | `templates/skills/content-generate/SKILL.md`、03 |
-| L3 收尾 skill | finalize 沉淀 session（收尾类，结束规则/Stop hook 转交） | `templates/skills/finalize/SKILL.md`、**01 §5** |
+| L3 收尾 skill | finalize 沉淀 session（收尾类，结束规则/Stop hook 转交） | `templates/skills/workbench-finalizer/SKILL.md`、**01 §5** |
 | L4 自学习 | 候选生成 + promote 状态/patch 晋升命令 | **02**（自我进化规格，候选 5 类含 kb-tuning） |
 | L5 知识库 | ingest / hybrid search / gc / legacy | **04**（知识库层独立设计） |
 | L6 内容组装 | text draft / plan build / media assemble / publish package | 03 §内容组装规格 |
@@ -96,7 +98,7 @@
 验证：端到端出一组成品，检查 `draft.json` / `plan.json` / outputs 成品包结构。
 
 ### P3 视频 ingestion + 短视频组装
-构建：`kb ingest --modality video`（ffmpeg 抽帧 + Claude vision caption）、`media assemble` 短视频时间线。
+构建：`kb ingest --modality video`（ffmpeg 抽帧 + tmux CLI runtime caption；不具备媒体理解时走手工 caption 兜底）、`media assemble` 短视频时间线。
 验证：端到端出一条短视频（KB 视频片段裁剪拼接；可选字幕烧录；正文文案见 publish-checklist）。
 
 ### P4 调度 + 自学习闭环
@@ -127,7 +129,7 @@
 
 环境要求、Python 依赖、目录结构见 **README.md**；KB 模型与内存预算（M1Pro 16G）见 **04 §9**。
 
-核心栈：`anthropic`（文案/caption）、`lancedb` + `sentence-transformers`(bge-small-zh-v1.5 / bge-reranker-base) + `jieba`（KB）、`ffmpeg` + `Pillow`（媒体）、`apscheduler`（调度）。
+核心栈：tmux CLI runtime（真实 `codex` / `claude` 交互会话）+ result-file contract、未来可选 LLM API backend、`lancedb` + `sentence-transformers`(bge-small-zh-v1.5 / bge-reranker-base) + `jieba`（KB）、`ffmpeg` + `Pillow`（媒体）、`apscheduler`（调度）。
 
 ---
 
@@ -136,7 +138,7 @@
 - 写门禁：`kb ingest/index/gc/legacy`、`text draft` 写文件、`plan build` 写文件、`media assemble`、`publish package` 必须 `--allow-write`，否则 dry-run 或 stdout 预览。
 - `kb search` 默认写 `search-log.jsonl` 与 `last_hit_at`，用于自学习和清理；严格只读用 `--no-log --no-touch`。
 - 发布门禁：外部平台发布前预览确认，不自动发帖。
-- 敏感信息：API key 存 `.env`（进 `.gitignore`）；不把 media-store 绝对路径写入对外产物。
+- 敏感信息：默认不要求 LLM API key；启用 API backend 时 key 只进本地 `.env`/系统环境，不进 UI、日志、提交或成品包；CLI 登录态由各自命令管理；不把 media-store 绝对路径写入对外产物。
 - 验证策略：P0 路由回归 + hook 实测；P1-P3 各一个端到端样例 + KB 召回人工回读；P4 完整 learn→候选→晋升→`validate.sh --quick`，完整环境验收跑 `validate.sh --e2e`。
 
 > 安全规则唯一事实源：`rules/core-safety.md`；自我进化边界：02。

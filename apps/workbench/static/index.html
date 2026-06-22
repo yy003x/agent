@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>个人Agent工作台</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div class="brand">
+          <div class="brand-title">个人工作台</div>
+          <div class="brand-subtitle">KB · 内容 · Runtime</div>
+        </div>
+
+        <div class="session-actions">
+          <button id="newSessionBtn" class="primary-button" type="button">新会话</button>
+          <button id="sessionEditModeBtn" class="ghost-button" type="button">编辑</button>
+        </div>
+        <div id="sessionBulkActions" class="session-bulk-actions" hidden>
+          <button id="selectAllSessionsBtn" class="ghost-button" type="button">全选</button>
+          <button id="clearSelectedSessionsBtn" class="ghost-button" type="button">清空</button>
+          <button id="deleteSelectedSessionsBtn" class="danger-button" type="button">批量删除</button>
+        </div>
+
+        <section class="panel">
+          <div class="panel-title">会话</div>
+          <div id="sessionList" class="list compact"></div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-title">健康状态</div>
+          <div id="healthSummary" class="health-summary"></div>
+        </section>
+      </aside>
+
+      <main class="main">
+        <header class="topbar">
+          <div>
+            <div class="page-title">聊天</div>
+            <div id="sessionTitle" class="page-subtitle">未选择会话</div>
+          </div>
+          <div class="toolbar">
+            <button id="providerQuickBtn" class="provider-quick-button" type="button">助手: --</button>
+            <button id="refreshBtn" class="ghost-button" type="button">刷新</button>
+          </div>
+        </header>
+
+        <section id="messages" class="messages"></section>
+
+        <form id="chatForm" class="composer">
+          <textarea id="chatInput" rows="3" placeholder="输入图书运营需求，例如：出一篇数学思维书单小红书文案"></textarea>
+          <button class="send-button" type="submit">发送</button>
+        </form>
+      </main>
+
+      <aside class="inspector">
+        <nav class="tabs">
+          <button class="tab active" data-tab="progress" type="button">进度</button>
+          <button class="tab" data-tab="kb" type="button">素材</button>
+          <button class="tab" data-tab="outputs" type="button">产出</button>
+          <button class="tab" data-tab="settings" type="button">设置</button>
+          <button class="tab diagnostic-tab" data-tab="diagnostics" type="button">诊断</button>
+        </nav>
+
+        <section id="tab-progress" class="tab-panel active">
+          <div class="panel-title">任务进度</div>
+          <div id="progressList" class="list"></div>
+        </section>
+
+        <section id="tab-kb" class="tab-panel">
+          <div class="panel-title">素材搜索</div>
+          <form id="kbForm" class="inline-form">
+            <input id="kbQuery" type="search" placeholder="关键词" />
+            <select id="kbModality">
+              <option value="all">全部</option>
+              <option value="doc">文档</option>
+              <option value="image">图片</option>
+              <option value="video">视频</option>
+            </select>
+            <button type="submit">搜索</button>
+          </form>
+          <div id="kbResults" class="list"></div>
+        </section>
+
+        <section id="tab-outputs" class="tab-panel">
+          <div class="panel-title">产出中心</div>
+          <div class="muted panel-hint">仅生成手动发布素材，不会自动发帖或群发。</div>
+          <div id="outputList" class="list"></div>
+          <div id="filePreview" class="preview"></div>
+        </section>
+
+        <section id="tab-settings" class="tab-panel">
+          <div class="panel-title">助手设置</div>
+          <div id="providerSummary" class="provider-summary"></div>
+          <form id="providerConfigForm" class="runtime-form provider-form">
+            <div class="form-grid two-cols">
+              <label>
+                聊天助手
+                <select id="chatProvider">
+                  <option value="codex_cli">Codex</option>
+                  <option value="claude_cli">Claude</option>
+                </select>
+              </label>
+              <label>
+                长任务助手
+                <select id="runtimeProvider">
+                  <option value="codex_cli">Codex</option>
+                  <option value="claude_cli">Claude</option>
+                </select>
+              </label>
+            </div>
+            <details class="advanced-panel">
+              <summary>高级启动参数</summary>
+              <div class="muted panel-hint">这些配置会影响底层 CLI 启动方式，通常不需要修改。</div>
+              <label>
+                Codex 命令
+                <input id="codexCommand" type="text" placeholder="codex" />
+              </label>
+              <div class="form-grid two-cols">
+                <label>
+                  Codex sandbox
+                  <input id="codexSandbox" type="text" placeholder="workspace-write" />
+                </label>
+                <label>
+                  Codex approval
+                  <input id="codexApproval" type="text" placeholder="never" />
+                </label>
+              </div>
+              <label>
+                Codex extra args
+                <input id="codexExtraArgs" type="text" placeholder="可选，例如 --model ..." />
+              </label>
+              <div class="toggle-row">
+                <label><input id="codexNoAltScreen" type="checkbox" /> Codex no-alt-screen</label>
+                <label><input id="codexBypass" type="checkbox" /> Codex bypass approvals/sandbox</label>
+              </div>
+              <label>
+                Claude 命令
+                <input id="claudeCommand" type="text" placeholder="claude" />
+              </label>
+              <div class="form-grid two-cols">
+                <label>
+                  Claude permission mode
+                  <input id="claudePermissionMode" type="text" placeholder="dontAsk" />
+                </label>
+                <label>
+                  Claude extra args
+                  <input id="claudeExtraArgs" type="text" placeholder="可选" />
+                </label>
+              </div>
+              <div class="toggle-row">
+                <label><input id="claudeSkipPermissions" type="checkbox" /> Claude skip permissions</label>
+              </div>
+            </details>
+            <button class="primary-button" type="submit">保存助手配置</button>
+          </form>
+        </section>
+
+        <section id="tab-diagnostics" class="tab-panel">
+          <div class="panel-title">诊断</div>
+          <label class="advanced-toggle"><input id="advancedModeToggle" type="checkbox" /> 高级模式</label>
+          <div id="diagnosticSummary" class="diagnostic-summary"></div>
+          <details class="diagnostic-section advanced-only">
+            <summary>当前会话 Runtime</summary>
+            <div id="chatRuntimeStatus" class="chat-runtime-status"></div>
+            <pre id="chatRuntimeLogs" class="log-view chat-log-view"></pre>
+          </details>
+          <details class="diagnostic-section advanced-only">
+            <summary>事件流</summary>
+            <div id="eventList" class="event-list"></div>
+          </details>
+          <details class="diagnostic-section advanced-only">
+            <summary>Runtime Runs</summary>
+            <form id="runtimeForm" class="runtime-form">
+              <select id="runtimeType">
+                <option value="codex_cli">Codex</option>
+                <option value="claude_cli">Claude</option>
+              </select>
+              <textarea id="runtimePrompt" rows="5">请完成一个健康检查任务，并把 result 写入指定文件。</textarea>
+              <button type="submit">启动测试任务</button>
+            </form>
+            <div id="runtimeRuns" class="list"></div>
+            <pre id="runtimeLogs" class="log-view"></pre>
+          </details>
+          <details class="diagnostic-section advanced-only">
+            <summary>Skill 能力</summary>
+            <div id="skillList" class="list"></div>
+          </details>
+          <details class="diagnostic-section advanced-only">
+            <summary>系统检查</summary>
+            <div id="healthList" class="list"></div>
+          </details>
+        </section>
+      </aside>
+    </div>
+
+    <script src="/static/app.js"></script>
+  </body>
+</html>

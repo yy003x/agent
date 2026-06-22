@@ -11,8 +11,8 @@
 执行步骤：
 1. 对齐 `AGENTS.md` 与 `design/templates/AGENTS.md`：入口以“学而思图书运营”协作约定为主，并保留本地 Agent 运行约定。
 2. 检查 `rules/core-routing.md`、`rules/core-safety.md` 与模板一致。
-3. 检查 `skills/finalize/SKILL.md` 与 `scripts/finalize.py`：支持 `record` / `hook` / `mark` / `snapshot`。
-4. 检查 `.claude/settings.json` Stop hook 指向 `python scripts/finalize.py hook`。
+3. 检查 `skills/workbench-finalizer/SKILL.md` 与 `scripts/finalize.py`：支持 `record` / `hook` / `mark` / `snapshot`。
+4. 检查收尾入口：Python 或 tmux CLI runtime 任务结束显式调用 `python scripts/finalize.py record`；legacy `.claude/settings.json` Stop hook 仅作为兼容兜底。
 5. 跑 `python scripts/finalize.py --help` 与 activity hook 行为测试。
 
 完成标准：
@@ -27,7 +27,7 @@
 
 执行步骤：
 1. 运行 `python skills/content-generate/scripts/content_runtime.py init` 初始化 `items` / `concepts` / `graph_edges`。
-2. 准备 `test-data/` 文档样例，优先用 doc-only 路径验证无 API key / ffmpeg 的最小闭环。
+2. 准备 `test-data/` 文档样例，优先用 doc-only 路径验证无智能 caption / ffmpeg 的最小闭环。
 3. 运行 `kb ingest --src <test-folder> --modality doc --limit 5 --allow-write`。
 4. 运行 `kb search --query "数学思维" --modality all --topk 5 --json`，人工回读 `source_path`。
 5. 运行 `kb index --rebuild fts|graph|all --allow-write` 验证可重建。
@@ -55,7 +55,7 @@
      --out outputs/YYYY-MM-DD/content/<slug>/draft.json \
      --allow-write
    ```
-3. 必要时由 AI 基于 `draft.json` 做 inline 润色，但必须回读素材事实，不编造。
+3. 必要时由配置的 tmux CLI runtime 基于 `draft.json` 做润色，并写回结构化结果；必须回读素材事实，不编造。
 4. 运行：
    ```bash
    python skills/content-generate/scripts/content_runtime.py plan build \
@@ -128,7 +128,7 @@
 执行步骤：
 1. 运行 `python3 -m py_compile scripts/*.py apps/scheduler/scheduler.py skills/content-generate/scripts/content_runtime.py`。
 2. 运行 `bash scripts/validate.sh --quick`。
-3. 环境具备时运行 `bash scripts/validate.sh --e2e`；缺少外部依赖或 API key 时记录失败项，不伪装通过。
+3. 环境具备时运行 `bash scripts/validate.sh --e2e`；缺少外部依赖、模型或所选 tmux CLI runtime 时记录失败项，不伪装通过。
 4. 运行核心行为 smoke：text draft、plan build、promote reject、kb legacy dry-run。
 5. 运行 `git diff --check`、敏感信息扫描、模板一致性 diff。
 6. 显式 `python scripts/finalize.py record --summary "<本轮摘要>"`。

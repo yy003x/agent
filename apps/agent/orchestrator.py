@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""orchestrator —— 纯 Python 本地 Agent 运行时（替代 Claude Code 宿主）。
+"""orchestrator —— 纯 Python 本地 Agent 运行时（Codex CLI 智能后端）。
 
-实现 design/01-framework.md 的核心循环，让本 Agent 脱离外部 Agent CLI 独立运行：
+实现 design/01-framework.md 的核心循环，让 Python 主循环负责流程编排：
   输入 → rules/core-routing.md 语义分类
        → 命中 content-generate：按 SKILL.md 10 步状态机执行（确认门 + --allow-write 门禁）
        → 其余分类走 core-routing.md「默认行为」
@@ -13,7 +13,7 @@
 
 底层确定性工具：skills/content-generate/scripts/content_runtime.py
 （**同进程导入**，向量/精排模型常驻，不走 subprocess 反复重载）。
-认知层：apps/agent/brain.py（分类/抽取/润色/对话，无 key 自动降级）。
+认知层：apps/agent/brain.py（分类/抽取/润色/对话，无 Codex CLI 自动降级）。
 """
 from __future__ import annotations
 
@@ -352,8 +352,8 @@ def handle(user_input: str, history: list) -> None:
 
 def repl() -> None:
     say("学而思图书运营 本地 Agent（纯 Python 运行时）。输入内容开始；输入 exit / quit 退出。")
-    if not brain.has_api_key():
-        say("[提示] 未设置 ANTHROPIC_API_KEY：分类走关键词降级、文案不做 AI 润色、对话不可用；"
+    if not brain.has_codex_cli():
+        say("[提示] 未找到可执行的 codex CLI：分类走关键词降级、文案不做 AI 润色、对话不可用；"
             "内容生成与 KB 检索的本地链路仍可用。")
     history: list = []
     while True:

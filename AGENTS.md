@@ -29,7 +29,10 @@
 ## 本地 Agent 运行约定
 
 - 运行事实源：`rules/core-routing.md` 管输入分类，`rules/core-safety.md` 管安全边界，`memory/summary.md` 管当前状态。
-- 内容生成类任务触发 `skills/content-generate/SKILL.md`；实质性任务结束后用 `skills/finalize/SKILL.md` / `scripts/finalize.py` 记录 session。
+- 当前 Agent 的目标形态是图书运营工作台：用于日常整理产品资料、文档、图片、视频并纳入本地知识库；入口同时支持 GUI 工作台和 CLI。
+- 工作台托管的智能 runtime 通过 tmux 启动真实 `codex` / `claude` CLI 会话：默认 `codex_cli`，`claude_cli` 通过配置启用；不使用 `codex exec` 或 `claude -p` 作为 GUI runtime。CLI 高级入口可直接打开 `codex` / `claude`，未来可扩展 LLM API backend。
+- 轻量对话、事实检索、外部调研、方案设计、执行、收尾、自学习和 skill 维护分别由 `workbench-chat`、`knowledge-search`、`workbench-research`、`workbench-design`、`workbench-execute`、`workbench-finalizer`、`agent-learn`、`agent-skill-create` 承接；图书运营业务闭环由 `book-asset`、`knowledge-sync`、`book-profile`、`book-campaign`、`content-package`、`content-compliance-review`、`book-media`、`workbench-session-ops` 补齐；本地 skill 入口均在 `skills/<name>/SKILL.md`。
+- 内容生成类任务触发 `skills/content-generate/SKILL.md`；实质性任务结束后用 `skills/workbench-finalizer/SKILL.md` / `scripts/finalize.py` 记录 session。
 - 写操作优先走 `skills/content-generate/scripts/content_runtime.py`，遵守 `--allow-write` 门禁；发布只产成品包和预览，不自动发帖。
 - 关键目录：`workspace/kb/` 是本地知识库，`workspace/daily/` 是 session 事实源，`outputs/` 是草稿/成品包，`runs/` 是运行日志；这些默认不进 Git。
 - 若 `workspace/resume/` 有恢复点，先提示用户是否继续，不自动恢复。

@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """brain —— 纯 Python 编排器的「认知层」。
 
-把原本依赖外部 Agent 运行时（Claude Code）解释 rules / SKILL.md 的智能动作，
-收敛为几个**窄任务**的 Claude API 调用：输入分类、需求抽取、文案润色、对话 / 问答 / 讨论。
+把需要智能判断的窄任务收敛为本机 Codex CLI 调用：输入分类、需求抽取、
+文案润色、对话 / 问答 / 讨论。Python 主循环仍负责流程编排、确认门与写入门禁。
 
 设计依据：design/01-framework.md（路由→skill 桥梁）、rules/core-routing.md（分类表）、
 AGENTS.md（运营合规红线）。
 
-降级策略：未设置 ANTHROPIC_API_KEY（或 SDK 不可用）时，分类降级为关键词规则、
+降级策略：未找到可执行的 `codex` CLI 或 CLI 调用失败时，分类降级为关键词规则，
 文案润色降级为模板原样返回、对话/问答返回离线提示，保证纯文档链路（P1）可离线跑通。
 """
 from __future__ import annotations
@@ -15,10 +15,16 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
+import subprocess
+import tempfile
+from pathlib import Path
 
-# 认知层用两档模型：分类/抽取用便宜快的 haiku，文案润色用质量更好的 sonnet。
-ROUTER_MODEL = os.environ.get("AGENT_ROUTER_MODEL", "claude-haiku-4-5-20251001")
-WRITER_MODEL = os.environ.get("AGENT_WRITER_MODEL", "claude-sonnet-4-6")
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+CODEX_CMD = os.environ.get("AGENT_CODEX_CMD", "codex")
+CODEX_MODEL = os.environ.get("AGENT_CODEX_MODEL", "")
+CODEX_PROFILE = os.environ.get("AGENT_CODEX_PROFILE", "")
+CODEX_TIMEOUT_S = int(os.environ.get("AGENT_CODEX_TIMEOUT_S", "180"))
 
 CATEGORIES = ["chitchat", "qa", "search", "design", "content", "exec"]
 PLATFORMS = ["xiaohongshu", "moments", "wechat_group"]
@@ -31,29 +37,61 @@ COMPLIANCE = (
     "不写内部价格策略与学员个人信息。只能基于给定素材事实，不得编造书名/数据/引用。"
 )
 
-_client = None
+
+def has_codex_cli() -> bool:
+    return bool(shutil.which(CODEX_CMD))
 
 
-def get_client():
-    global _client
-    if _client is None:
-        import anthropic  # 延迟导入，无 key 路径不强依赖
-        _client = anthropic.Anthropic()
-    return _client
+def _codex_exec(system: str, user: str, max_tokens: int = 1024,
+                image_paths: list[Path] | None = None) -> str:
+    """调用本机 Codex CLI，并返回最后一条 assistant 消息。"""
+    if not has_codex_cli():
+        raise RuntimeError("未找到 codex CLI")
 
-
-def has_api_key() -> bool:
-    return bool(os.environ.get("ANTHROPIC_API_KEY"))
-
-
-def _complete(model: str, system: str, user: str, max_tokens: int = 1024) -> str:
-    resp = get_client().messages.create(
-        model=model,
-        max_tokens=max_tokens,
-        system=system,
-        messages=[{"role": "user", "content": user}],
+    prompt = (
+        f"{system}\n\n"
+        "你正在作为学而思图书运营本地 Agent 的一个窄任务执行器运行。\n"
+        "只完成本次请求，不修改文件，不执行发布动作。\n"
+        f"输出长度上限参考：{max_tokens} tokens。\n\n"
+        f"用户输入：\n{user}"
     )
-    return resp.content[0].text
+    with tempfile.TemporaryDirectory(prefix="agent-codex-") as tmp:
+        output_path = Path(tmp) / "last-message.txt"
+        cmd = [
+            CODEX_CMD, "exec",
+            "--skip-git-repo-check",
+            "--sandbox", "read-only",
+            "--color", "never",
+            "--output-last-message", str(output_path),
+            "-C", str(PROJECT_ROOT),
+        ]
+        if CODEX_MODEL:
+            cmd.extend(["--model", CODEX_MODEL])
+        if CODEX_PROFILE:
+            cmd.extend(["--profile", CODEX_PROFILE])
+        for image_path in image_paths or []:
+            cmd.extend(["--image", str(image_path)])
+        cmd.append("-")
+
+        proc = subprocess.run(
+            cmd,
+            input=prompt,
+            text=True,
+            capture_output=True,
+            timeout=CODEX_TIMEOUT_S,
+            cwd=PROJECT_ROOT,
+            check=False,
+        )
+        if output_path.exists():
+            text = output_path.read_text(encoding="utf-8", errors="ignore").strip()
+        else:
+            text = proc.stdout.strip()
+        if proc.returncode != 0:
+            detail = (proc.stderr or proc.stdout or "").strip().splitlines()[-1:]
+            raise RuntimeError(detail[0] if detail else f"codex exec 退出码 {proc.returncode}")
+        if not text:
+            raise RuntimeError("codex exec 未返回内容")
+        return text
 
 
 def _extract_json(text: str):
@@ -92,8 +130,8 @@ def _classify_fallback(text: str) -> str:
 
 
 def classify(text: str) -> str:
-    """语义分类，返回 CATEGORIES 之一。无 key 时降级关键词匹配。"""
-    if not has_api_key():
+    """语义分类，返回 CATEGORIES 之一。无 Codex CLI 时降级关键词匹配。"""
+    if not has_codex_cli():
         return _classify_fallback(text)
     system = (
         "你是学而思图书运营 Agent 的输入路由器。把用户输入分类为以下之一，只输出 JSON：\n"
@@ -104,7 +142,7 @@ def classify(text: str) -> str:
         "优先级：内容生成优先于搜索；「解释X」归 qa，「帮我找X」归 search。"
     )
     try:
-        data = _extract_json(_complete(ROUTER_MODEL, system, text, max_tokens=64))
+        data = _extract_json(_codex_exec(system, text, max_tokens=64))
         cat = (data or {}).get("category")
         return cat if cat in CATEGORIES else _classify_fallback(text)
     except Exception:
@@ -114,10 +152,10 @@ def classify(text: str) -> str:
 # ─────────────────────────── 需求抽取（content-generate 步骤 1）───────────────────────────
 
 def extract_requirements(text: str) -> dict:
-    """从内容生成请求中抽取主题/平台/形态/风格/数量/约束。无 key 时给保守默认。"""
+    """从内容生成请求中抽取主题/平台/形态/风格/数量/约束。无 Codex CLI 时给保守默认。"""
     default = {"topic": text.strip(), "platform": "xiaohongshu", "form": "图文",
                "style": "知识科普", "count": 1, "constraints": ""}
-    if not has_api_key():
+    if not has_codex_cli():
         return default
     system = (
         "从用户的内容生成请求中抽取字段，只输出 JSON：\n"
@@ -127,7 +165,7 @@ def extract_requirements(text: str) -> dict:
         "platform 默认 xiaohongshu；提到「朋友圈」→moments；「家长群/微信群/社群」→wechat_group。"
     )
     try:
-        data = _extract_json(_complete(ROUTER_MODEL, system, text, max_tokens=256)) or {}
+        data = _extract_json(_codex_exec(system, text, max_tokens=256)) or {}
     except Exception:
         return default
     out = {**default, **{k: v for k, v in data.items() if v}}
@@ -146,11 +184,11 @@ def polish_copy(draft: dict, requirements: dict, source_facts: list[str],
                 instruction: str = "") -> dict:
     """基于模板草稿与素材事实，产出更高质量文案。返回 {title, body_text, tags}。
 
-    无 key 时原样返回模板草稿（不编造）。
+    无 Codex CLI 时原样返回模板草稿（不编造）。
     """
     base = {"title": draft.get("title", ""), "body_text": draft.get("body_text", ""),
             "tags": draft.get("tags", [])}
-    if not has_api_key():
+    if not has_codex_cli():
         return base
 
     platform = requirements.get("platform", draft.get("platform", "xiaohongshu"))
@@ -171,7 +209,7 @@ def polish_copy(draft: dict, requirements: dict, source_facts: list[str],
         + ("（moments/wechat_group 的 tags 给空数组）" if platform != "xiaohongshu" else "")
     )
     try:
-        data = _extract_json(_complete(WRITER_MODEL, COMPLIANCE, user, max_tokens=1200)) or {}
+        data = _extract_json(_codex_exec(COMPLIANCE, user, max_tokens=1200)) or {}
     except Exception:
         return base
     return {
@@ -184,13 +222,13 @@ def polish_copy(draft: dict, requirements: dict, source_facts: list[str],
 # ─────────────────────────── 对话 / 问答 / 讨论 ───────────────────────────
 
 def _chat_like(system: str, text: str, context: str = "") -> str:
-    if not has_api_key():
-        return "（当前未设置 ANTHROPIC_API_KEY，无法调用对话能力；内容生成/搜索的本地链路仍可用。）"
+    if not has_codex_cli():
+        return "（当前未找到可执行的 codex CLI，无法调用对话能力；内容生成/搜索的本地链路仍可用。）"
     user = (f"参考资料：\n{context}\n\n问题：{text}" if context else text)
     try:
-        return _complete(WRITER_MODEL, system, user, max_tokens=1024).strip()
+        return _codex_exec(system, user, max_tokens=1024).strip()
     except Exception as e:  # noqa: BLE001
-        return f"（对话调用失败：{e}）"
+        return f"（Codex CLI 调用失败：{e}）"
 
 
 def chat(text: str) -> str:

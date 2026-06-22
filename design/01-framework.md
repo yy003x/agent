@@ -16,7 +16,7 @@
 │    Step 1  读 rules/core-routing.md → 做语义分类                                            │
 │    Step 2  分类命中 skill → 读 skills/<name>/SKILL.md → 按步骤执行                          │
 │    Step 3  分类未命中 skill → 按 core-routing.md 末尾「默认行为」内联处理                   │
-│    Step 4  执行结束 → 转交 finalize skill（scripts/finalize.py，实质性任务才记录）           │
+│    Step 4  执行结束 → 转交 workbench-finalizer skill（scripts/finalize.py，实质性任务才记录）           │
 │                                                                                              │
 │  定时（scheduler.py）：                                                                      │
 │    每周一 → python scripts/agent_learning_review.py → 候选 → 用户确认 → 晋升                │
@@ -26,8 +26,8 @@
               content-runtime CLI（检索/ingest/组装）
                           │
               ┌───────────┴───────────┐
-         本地 KB 层               内容组装层
-  （LanceDB + bge-small-zh）   （Claude 文案 + ffmpeg）
+	 本地 KB 层               内容组装层
+  （LanceDB + bge-small-zh）   （tmux CLI runtime 文案 + ffmpeg）
 ```
 
 ---
@@ -123,10 +123,10 @@ Skill 是对一类复杂、有固定步骤序列的任务的**结构化执行规
 | 类别 | 触发来源 | 典型 | 角色 |
 |---|---|---|---|
 | **处理类** | 路由器（`core-routing.md`）按用户输入语义触发 | `content-generate` | 入口：router 把输入路由到对应处理 skill |
-| **收尾类** | 每轮结束规则 / Stop hook 转交（**非输入触发**） | `finalize` | 出口：一轮处理结束后沉淀 session |
+| **收尾类** | 每轮结束规则 / Stop hook 转交（**非输入触发**） | `workbench-finalizer` | 出口：一轮处理结束后沉淀 session |
 
-整条链路：**输入 →〔rule〕路由器 → 处理 skill →〔rule / Stop hook〕转交 → finalize skill**。
-当前实现两个 skill：`content-generate`（处理类）+ `finalize`（收尾类）；框架支持后续按需新增。
+整条链路：**输入 →〔rule〕路由器 → 处理 skill →〔rule / Stop hook〕转交 → workbench-finalizer skill**。
+当前项目已扩展为个人工作台 skill 集：轻量对话、事实检索、外部调研、设计、执行、收尾、自学习、skill 维护和图书运营内容生成分别由对应 `skills/*/SKILL.md` 承接。
 
 ### Skill 解决的核心问题
 | 问题 | Skill 的解法 |
@@ -158,7 +158,7 @@ skills/
 ## 前置检查
 [执行前必须满足的条件：依赖存在/环境/权限]
 - [ ] lance/ 存在（workspace/kb/lance/，运行 init 初始化）
-- [ ] ANTHROPIC_API_KEY 已设置
+- [ ] 至少一种智能 runtime 可用（工作台默认 `codex_cli`，或配置启用的 `claude_cli`；LLM API backend 仅未来扩展）
 
 ## 执行流程
 按序执行，**不得跳步**：
@@ -221,9 +221,9 @@ python skills/content-generate/scripts/content_runtime.py kb search \
 
 ---
 
-## 5. Finalize 机制（finalize skill 的实现层）
+## 5. Finalize 机制（workbench-finalizer skill 的实现层）
 
-> finalize 是**收尾类 skill**：`skills/finalize/SKILL.md` 规定「何时收尾、写什么」，本节是其工具 `scripts/finalize.py` 的规格。
+> finalize 是**收尾类 skill**：`skills/workbench-finalizer/SKILL.md` 规定「何时收尾、写什么」，本节是其工具 `scripts/finalize.py` 的规格。
 
 ### 目的
 每轮实质性任务结束后，把「发生了什么」记录到本地事实层，供自我进化使用。
@@ -240,7 +240,8 @@ python skills/content-generate/scripts/content_runtime.py kb search \
 
 ### Hook 配置
 
-在 AI 运行时的「结束 / Stop」hook 中配置兜底命令。项目根 `.claude/settings.json`：
+在支持 hook 的宿主运行时里，可配置「结束 / Stop」兜底命令；tmux CLI runtime 与工作台主路径应在任务结束时显式调用 `record`。
+当前仓库保留 legacy `.claude/settings.json` 作为兼容入口：
 ```json
 {
   "hooks": {
@@ -259,8 +260,8 @@ python skills/content-generate/scripts/content_runtime.py kb search \
 }
 ```
 
-Hook 是兜底入口：只在检测到明确实质性任务信号时写 session，避免闲聊、纯问答产生空记录。
-skill 或写文件任务结束时仍应显式调用 `python scripts/finalize.py record --summary ...`。
+Hook 只是兼容兜底入口：只在检测到明确实质性任务信号时写 session，避免闲聊、纯问答产生空记录。
+skill、写文件任务或 tmux CLI runtime 任务结束时仍应显式调用 `python scripts/finalize.py record --summary ...`；LLM API backend 若未来启用也复用该收尾约束。
 （运行时若不支持结束 hook，则只靠显式 `record` 收尾。）
 
 ### `finalize.py` 实现规格
@@ -432,7 +433,7 @@ YYYY-MM-DD
 │   │   ├── SKILL.md
 │   │   └── scripts/
 │   │       └── content_runtime.py
-│   └── finalize/                     ← 收尾类 skill（工具：scripts/finalize.py）
+│   └── workbench-finalizer/           ← 收尾类 skill（工具：scripts/finalize.py）
 │       └── SKILL.md
 ├── memory/
 │   ├── summary.md                     ← 启动加载

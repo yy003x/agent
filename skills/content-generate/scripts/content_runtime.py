@@ -23,13 +23,13 @@
 
 写门禁：ingest / index / gc / legacy / text draft / plan build / assemble / package 写入时必须带
 --allow-write，否则仅 dry-run 或打印到 stdout。
-重依赖（lancedb / sentence-transformers / jieba / anthropic / PIL / pdfplumber / ffmpeg）按需延迟导入。
+重依赖（lancedb / sentence-transformers / jieba / PIL / pdfplumber / ffmpeg）按需延迟导入。
+图片/视频 caption 当前仍是 legacy `codex exec --image` 实现；工作台目标态会迁移到 tmux 真会话 runtime，无需 LLM API key。
 """
 
 from __future__ import annotations
 
 import argparse
-import base64
 import hashlib
 import json
 import os
@@ -37,6 +37,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -56,7 +57,10 @@ EMBED_MODEL = os.environ.get("EMBED_MODEL", "BAAI/bge-small-zh-v1.5")
 EMBED_DIM = 512
 RERANK_MODEL = os.environ.get("RERANK_MODEL", "BAAI/bge-reranker-base")
 EMBED_DEVICE = os.environ.get("EMBED_DEVICE", "")   # 空 = 自动（mps→cpu）
-VISION_MODEL = os.environ.get("VISION_MODEL", "claude-haiku-4-5-20251001")  # caption 高频，用 haiku 省成本
+CODEX_CMD = os.environ.get("AGENT_CODEX_CMD", "codex")
+CODEX_MODEL = os.environ.get("AGENT_CODEX_MODEL", "")
+CODEX_PROFILE = os.environ.get("AGENT_CODEX_PROFILE", "")
+CODEX_TIMEOUT_S = int(os.environ.get("AGENT_CODEX_TIMEOUT_S", "180"))
 Q_INSTRUCTION = "为这个句子生成表示以用于检索相关文章："
 
 # 检索管线参数（见 04-knowledge-base.md §7）
@@ -71,7 +75,6 @@ GRAPH_JSONL = KB_DIR / "graph.jsonl"   # 二部图事实源（确定性可重建
 DOC_EXT = {".md", ".txt", ".pdf"}
 IMAGE_EXT = {".jpg", ".jpeg", ".png", ".webp"}
 VIDEO_EXT = {".mp4", ".mov", ".m4v", ".webm"}
-MEDIA_TYPE = {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".webp": "image/webp"}
 
 PLATFORM_SPEC = {
     "xiaohongshu": {"cover": (1080, 1080), "image": (1080, 1440), "max_images": 9},
@@ -369,17 +372,11 @@ def upsert_items(tbl, rows: list[dict]) -> None:
         .execute(rows))
 
 
-# ─────────────────────────── Claude vision（含缓存） ───────────────────────────
-
-_claude = None
+# ─────────────────────────── Codex image caption（含缓存） ───────────────────────────
 
 
-def get_claude():
-    global _claude
-    if _claude is None:
-        import anthropic
-        _claude = anthropic.Anthropic()
-    return _claude
+def has_codex_cli() -> bool:
+    return bool(shutil.which(CODEX_CMD))
 
 
 def _load_caption_cache() -> dict:
@@ -396,23 +393,63 @@ def _save_caption_cache(cache: dict) -> None:
     CAPTION_CACHE.write_text(json.dumps(cache, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
+def _codex_caption(path: Path) -> str:
+    if not has_codex_cli():
+        raise RuntimeError("未找到 codex CLI")
+    prompt = (
+        "你是学而思图书运营本地 Agent 的图片理解器。"
+        "请只基于图片内容生成可用于本地知识库检索的中文 caption。"
+        f"\n{CAPTION_PROMPT}"
+    )
+    with tempfile.TemporaryDirectory(prefix="content-caption-") as tmp:
+        output_path = Path(tmp) / "last-message.txt"
+        cmd = [
+            CODEX_CMD, "exec",
+            "--skip-git-repo-check",
+            "--sandbox", "read-only",
+            "--color", "never",
+            "--output-last-message", str(output_path),
+            "-C", str(ROOT),
+        ]
+        if CODEX_MODEL:
+            cmd.extend(["--model", CODEX_MODEL])
+        if CODEX_PROFILE:
+            cmd.extend(["--profile", CODEX_PROFILE])
+        cmd.extend(["--image", str(path), "-"])
+        proc = subprocess.run(
+            cmd,
+            input=prompt,
+            text=True,
+            capture_output=True,
+            timeout=CODEX_TIMEOUT_S,
+            cwd=ROOT,
+            check=False,
+        )
+        if output_path.exists():
+            text = output_path.read_text(encoding="utf-8", errors="ignore").strip()
+        else:
+            text = proc.stdout.strip()
+        if proc.returncode != 0:
+            detail = (proc.stderr or proc.stdout or "").strip().splitlines()[-1:]
+            raise RuntimeError(detail[0] if detail else f"codex exec 退出码 {proc.returncode}")
+        if not text:
+            raise RuntimeError("codex exec 未返回 caption")
+        return text
+
+
 def caption_image_file(path: Path, fhash: str | None = None) -> tuple[str, list[str]]:
-    """调 Claude vision（按 file_hash 缓存，避免换模型重 ingest 时重复计费）。"""
+    """调 Codex CLI 生成图片描述（按 file_hash 缓存，避免重复 caption）。"""
     cache = _load_caption_cache()
     key = fhash or file_hash(path)
     if key in cache:
         c = cache[key]
         return c["caption"], c["tags"]
-    mt = MEDIA_TYPE.get(path.suffix.lower(), "image/jpeg")
-    b64 = base64.b64encode(path.read_bytes()).decode()
-    resp = get_claude().messages.create(
-        model=VISION_MODEL, max_tokens=300,
-        messages=[{"role": "user", "content": [
-            {"type": "image", "source": {"type": "base64", "media_type": mt, "data": b64}},
-            {"type": "text", "text": CAPTION_PROMPT},
-        ]}],
-    )
-    caption, tags = parse_caption_and_tags(resp.content[0].text)
+    try:
+        text = _codex_caption(path)
+    except Exception as exc:  # noqa: BLE001
+        log_run(f"caption fallback: {display_path(path)} reason={exc}")
+        text = f"{path.stem}。标签：{path.stem}"
+    caption, tags = parse_caption_and_tags(text)
     cache[key] = {"caption": caption, "tags": tags}
     _save_caption_cache(cache)
     return caption, tags

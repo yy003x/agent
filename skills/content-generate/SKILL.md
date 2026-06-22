@@ -1,3 +1,10 @@
+---
+name: content-generate
+description: "Generate book-operation content drafts and basic assembly plans for Xiaohongshu, Moments, parent groups, book lists, reading notes, recommendations, image-text posts, and short-video scripts using local knowledge-base materials."
+metadata:
+  short-description: "图书运营内容生成、草稿和基础组装"
+---
+
 # content-generate Skill
 
 ## 触发条件
@@ -5,6 +12,10 @@
 用户输入被 `rules/core-routing.md` 分类为「内容生成」时触发。
 关键意图词：出一篇、生成内容、做个图文、写小红书、朋友圈文案、书单、读书笔记、
 知识卡片、读后感、书评、推荐语、配图、短视频、视频脚本。
+
+边界：图书档案先走 `book-profile`；活动排期先走 `book-campaign`；入库素材先走
+`book-asset` / `knowledge-sync`；成品包整理走 `content-package`；发布前审核走
+`content-compliance-review`。
 
 ---
 
@@ -14,7 +25,7 @@
 
 - [ ] `workspace/kb/lance/` 存在（运行 `content_runtime.py init` 初始化 LanceDB）
 - [ ] 向量模型可用（bge-small-zh-v1.5；reranker 加载失败时允许降级）
-- [ ] 需要新增图片/视频 caption 或由脚本调用 Claude 时，`ANTHROPIC_API_KEY` 已设置
+- [ ] 需要新增图片/视频 caption、智能润色、QA 或需求抽取时，所选智能 runtime 可用：默认 `codex_cli`，或配置启用的 `claude_cli`；工作台路径通过 tmux 真会话执行
 - [ ] 形态包含短视频或需要视频 ingest/assemble 时，`ffmpeg` 可执行
 
 ---
@@ -69,7 +80,7 @@ python skills/content-generate/scripts/content_runtime.py kb search \
 
 对用户选中的每条素材，读取 `source_path` 对应的原文件（**索引是候选，原文件是事实源**）：
 - 文档：读取文本内容（取前 500 字作为上下文）
-- 图片：读取 catalog 中的 `caption`（已有 Claude vision 描述，不重复调 API）
+- 图片：读取 catalog 中的 `caption`（已有 tmux CLI runtime caption 或人工 caption，不重复生成）
 - 视频：读取 `transcript`（帧 caption 拼接）
 
 ### 步骤 5：生成文案草稿
@@ -86,7 +97,8 @@ python skills/content-generate/scripts/content_runtime.py text draft \
   --allow-write
 ```
 
-展示 `draft.json` 中的标题、正文、标签；AI 可基于草稿 inline 润色，但不得编造素材事实。
+展示 `draft.json` 中的标题、正文、标签；如需智能润色，交给配置的 tmux CLI runtime 基于草稿和素材事实改写，
+再写回 `draft.json`，不得编造素材事实。
 询问：「文案是否满意？（可要求修改风格/长度/角度后重新生成或微调）」
 等用户确认后继续。
 
@@ -114,6 +126,8 @@ python skills/content-generate/scripts/content_runtime.py media assemble \
 
 ### 步骤 8：打包
 
+如果用户只要求打包已有草稿或整理发布包，直接转 `content-package`，不要重新生成内容。
+
 ```bash
 python skills/content-generate/scripts/content_runtime.py publish package \
   --platform xiaohongshu \
@@ -137,6 +151,7 @@ python skills/content-generate/scripts/content_runtime.py publish package \
 
 询问：「成品包已就绪，请检查后手动发布。是否需要调整？」
 **不自动发帖。等用户手动发布。**
+发布前如用户要求“检查 / 审核 / 看风险”，转 `content-compliance-review`。
 
 ### 步骤 10：收尾
 
@@ -179,6 +194,6 @@ outputs/YYYY-MM-DD/content/<slug>/
 | 异常 | 处理方式 |
 |---|---|
 | KB 检索 < 3 条 | 告知用户，询问是否 ingest 素材或调整主题 |
-| Claude API 调用失败 | 重试一次，仍失败则告知用户检查 API key |
+| 智能 runtime 任务失败 | 重试一次，仍失败则告知用户检查 CLI 登录态、tmux/result file 或改用模板草稿 |
 | ffmpeg 组装失败 | 展示错误信息，询问用户是否跳过视频只出图文 |
 | 用户在步骤中途取消 | 停止执行，不触发 finalize，已生成的临时文件不自动删除（提示用户位置） |

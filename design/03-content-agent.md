@@ -107,25 +107,15 @@ def ingest_doc(path, catalog_db, chroma_collection):
 ### 图片（.jpg / .png / .webp）
 
 ```python
-def ingest_image(path, catalog_db, chroma_collection, claude_client):
-    # 1. Claude vision 生成 caption
-    with open(path, "rb") as f:
-        img_b64 = base64.b64encode(f.read()).decode()
-    response = claude_client.messages.create(
-        model="claude-opus-4-8",
-        max_tokens=300,
-        messages=[{
-            "role": "user",
-            "content": [
-                {"type": "image", "source": {"type": "base64", "media_type": "image/jpeg", "data": img_b64}},
-                {"type": "text", "text": (
-                    "描述这张图片的主题、视觉风格、构图要素，以及与教育/图书内容的关联。"
-                    "100字以内。最后另起一行列出5个精确标签，格式：标签：tag1,tag2,tag3,tag4,tag5"
-                )}
-            ]
-        }]
+def ingest_image(path, catalog_db, chroma_collection, llm_runtime):
+    # 1. 通过配置的 tmux CLI runtime 生成 caption；若当前 runtime 不支持该媒体能力，则提示用户手工补 caption。
+    caption_full = llm_runtime.caption_image(
+        path,
+        prompt=(
+            "描述这张图片的主题、视觉风格、构图要素，以及与教育/图书内容的关联。"
+            "100字以内。最后另起一行列出5个精确标签，格式：标签：tag1,tag2,tag3,tag4,tag5"
+        ),
     )
-    caption_full = response.content[0].text
     caption, tags_str = parse_caption_and_tags(caption_full)
     tags = tags_str.split(",")
 
@@ -144,12 +134,13 @@ def ingest_image(path, catalog_db, chroma_collection, claude_client):
 ### 视频（.mp4 / .mov）
 
 ```python
-def ingest_video(path, catalog_db, chroma_collection, claude_client):
+def ingest_video(path, catalog_db, chroma_collection, llm_runtime):
     # 1. ffmpeg 抽关键帧（每 30 秒一帧，最多 10 帧）
     frames = extract_frames(path, interval=30, max_count=10)  # -> list[tmp_image_path]
 
-    # 2. 每帧 Claude vision caption，拼接为 transcript
-    frame_captions = [caption_image(frame, claude_client) for frame in frames]
+    # 2. 每帧通过配置的 tmux CLI runtime 生成 caption，拼接为 transcript；
+    #    若当前 runtime 不支持媒体理解，则提示用户手工补帧摘要或跳过 caption。
+    frame_captions = [llm_runtime.caption_image(frame) for frame in frames]
     transcript = "\n".join(f"[{i*30}s] {cap}" for i, cap in enumerate(frame_captions))
 
     # 3. 探测时长/分辨率
@@ -173,7 +164,7 @@ def ingest_video(path, catalog_db, chroma_collection, claude_client):
 ### Ingestion 通用约定
 - 新增/变更检测：`file_hash` 与 catalog 比对，已处理跳过（断点续跑支持）
 - 处理顺序：当前串行处理（图片并发为后续优化）
-- Claude vision 调用限流：每分钟最多 10 次（避免 API rate limit）
+- caption 任务走配置的智能 runtime：工作台默认使用 tmux CLI result-file 契约，`codex_cli` 默认、`claude_cli` 通过配置启用，不走 `codex exec` / `claude -p`。当前 runtime 不支持媒体理解时，允许手工 caption 或仅使用文件名/目录标签作为降级元数据。
 - `--limit N` 参数：单次最多处理 N 个文件（scheduler 用，避免长时间阻塞）
 
 ---
@@ -245,7 +236,7 @@ Step 4  生成文案
     --sources outputs/YYYY-MM-DD/content/<slug>/sources.json \
     --out outputs/YYYY-MM-DD/content/<slug>/draft.json \
     --allow-write
-  AI 可在 draft.json 基础上 inline 润色，但必须回读素材事实，不编造。
+  AI 润色通过配置的 tmux CLI runtime 完成，并写回 draft.json；必须回读素材事实，不编造。
 
 Step 5  生成 plan
   python content_runtime.py plan build \
