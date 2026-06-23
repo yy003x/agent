@@ -25,6 +25,7 @@ esac
 
 PASS=0
 FAIL=0
+SHARED_RUNTIME_CLI="${AGENT_SHARED_RUNTIME_CLI:-/Users/yang/agents/runtime/scripts/agent-runtime}"
 
 check() {
   local name="$1"
@@ -118,6 +119,13 @@ check "workbench server.py --help 语法入口可加载" "python3 -m py_compile 
 check "workbench_smoke.py --help 可执行" "python3 scripts/workbench_smoke.py --help"
 check "model_backend_smoke.py --help 可执行" "python3 scripts/model_backend_smoke.py --help"
 check "model_backend_smoke.py --list 可执行" "python3 scripts/model_backend_smoke.py --list"
+
+echo ""
+echo "[shared-runtime]"
+check "agent-runtime CLI 可执行" "test -x \"$SHARED_RUNTIME_CLI\""
+check "agent-runtime doctor 可执行" "\"$SHARED_RUNTIME_CLI\" doctor --json"
+check "agent-runtime agent profiles 可读取" "\"$SHARED_RUNTIME_CLI\" profiles list --project agent --json"
+check "agent-runtime agent fake turn smoke" "tmp_prompt=\$(mktemp); printf 'agent fake smoke\n' > \"\$tmp_prompt\"; \"$SHARED_RUNTIME_CLI\" turn run --project agent --provider fake --prompt-file \"\$tmp_prompt\" --id agent-validate-\$\$ --cwd \"$PWD\" --force --json; status=\$?; rm -f \"\$tmp_prompt\"; test \"\$status\" -eq 0"
 
 if [ "$MODE" = "e2e" ]; then
   echo ""

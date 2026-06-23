@@ -7,8 +7,8 @@ from . import external_cli
 from .state import RuntimeTask
 
 
-class TmuxCodexWorker:
-    """Run Codex/Claude interactive CLI sessions through tmux."""
+class SharedRuntimeWorker:
+    """Run Codex/Claude sessions through the shared runtime."""
 
     def start_chat_worker(self, task: RuntimeTask) -> dict:
         return external_cli.start_chat_pane(
@@ -40,8 +40,8 @@ class TmuxCodexWorker:
 class ExternalCliExecutor:
     """Facade over concrete external CLI workers."""
 
-    def __init__(self, worker: TmuxCodexWorker | None = None) -> None:
-        self.worker = worker or TmuxCodexWorker()
+    def __init__(self, worker: SharedRuntimeWorker | None = None) -> None:
+        self.worker = worker or SharedRuntimeWorker()
 
     def start_chat_worker(self, task: RuntimeTask) -> dict:
         return self.worker.start_chat_worker(task)

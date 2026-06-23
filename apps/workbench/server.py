@@ -36,9 +36,9 @@ CONTENT_RUNTIME = ROOT / "skills" / "content-generate" / "scripts" / "content_ru
 MAIN_RUNTIME = MainRuntime()
 CHAT_WAIT_SECONDS = float(os.environ.get("AGENT_WORKBENCH_CHAT_WAIT_SECONDS", "120"))
 CHAT_RUNTIME = os.environ.get("AGENT_WORKBENCH_CHAT_RUNTIME", MAIN_RUNTIME.default_runtime())
-ALLOWED_RUNTIMES = {"codex_cli", "claude_cli", "codex_exec", "claude_print", "llm_api", "fake"}
-USER_RUNTIMES = {"codex_cli", "claude_cli", "codex_exec", "claude_print", "llm_api"}
-NONINTERACTIVE_RUNTIMES = {"codex_exec", "claude_print", "llm_api", "fake"}
+ALLOWED_RUNTIMES = {"codex_cli", "claude_cli", "fake"}
+USER_RUNTIMES = {"codex_cli", "claude_cli"}
+NONINTERACTIVE_RUNTIMES = {"fake"}
 
 
 def _now() -> str:
@@ -116,7 +116,6 @@ def _default_config() -> dict:
         "claude_permission_mode": effective["claude"]["permission_mode"],
         "claude_skip_permissions": effective["claude"]["skip_permissions"],
         "claude_extra_args": effective["claude"].get("extra_args", ""),
-        "llm_api_backend_id": effective.get("llm_api", {}).get("backend", ""),
     }
 
 
@@ -135,7 +134,6 @@ def _sanitize_config(data: dict) -> dict:
     config["claude_permission_mode"] = str(config.get("claude_permission_mode") or defaults["claude_permission_mode"]).strip()
     config["claude_skip_permissions"] = bool(config.get("claude_skip_permissions"))
     config["claude_extra_args"] = str(config.get("claude_extra_args") or "")
-    config["llm_api_backend_id"] = str(config.get("llm_api_backend_id") or "")
     return config
 
 
@@ -159,7 +157,6 @@ def _runtime_options_from_config(config: dict) -> dict:
         "claude_permission_mode": config["claude_permission_mode"],
         "claude_skip_permissions": config["claude_skip_permissions"],
         "claude_extra_args": config["claude_extra_args"],
-        "llm_api_backend_id": config.get("llm_api_backend_id", ""),
     }
 
 
@@ -167,10 +164,6 @@ def _command_for_runtime(config: dict, runtime: str) -> str | None:
     if runtime == "codex_cli":
         return config["codex_command"]
     if runtime == "claude_cli":
-        return config["claude_command"]
-    if runtime == "codex_exec":
-        return config["codex_command"]
-    if runtime == "claude_print":
         return config["claude_command"]
     return None
 
@@ -702,8 +695,12 @@ def _ensure_chat_runtime(session_id: str, startup_contract_path: Path,
     path = _session_dir(session_id)
     state = _read_json(path / "state.json", {})
     runtime_meta = state.get("runtime_meta") or {}
+    runtime_status = MAIN_RUNTIME.worker_status(runtime_meta) if runtime_meta else {}
     pane_id = runtime_meta.get("pane_id", "")
-    if pane_id and MAIN_RUNTIME.is_worker_alive(pane_id):
+    runtime_alive = bool(runtime_status.get("ok") and runtime_status.get("state") in {"running", "idle"})
+    if not runtime_alive and pane_id:
+        runtime_alive = MAIN_RUNTIME.is_worker_alive(pane_id)
+    if runtime_alive:
         if runtime_meta.get("runtime") != "fake" and not runtime_meta.get("startup_contract_version"):
             MAIN_RUNTIME.send_to_worker(runtime_meta, startup_contract_path.read_text(encoding="utf-8"))
             runtime_meta["startup_contract_path"] = str(startup_contract_path)
@@ -1046,12 +1043,6 @@ def kb_search(query: str, modality: str = "all", topk: int = 10) -> dict:
 def _provider_label(runtime: str | None) -> str:
     if runtime == "claude_cli":
         return "Claude"
-    if runtime == "codex_exec":
-        return "Codex Exec"
-    if runtime == "claude_print":
-        return "Claude Print"
-    if runtime == "llm_api":
-        return "LLM API"
     if runtime == "fake":
         return "测试 Runtime"
     return "Codex"

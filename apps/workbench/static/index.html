@@ -99,21 +99,15 @@
               <label>
                 聊天助手
                 <select id="chatProvider">
-                  <option value="codex_cli">Codex</option>
-                  <option value="claude_cli">Claude</option>
-                  <option value="codex_exec">Codex Exec</option>
-                  <option value="claude_print">Claude Print</option>
-                  <option value="llm_api">LLM API</option>
+	                  <option value="codex_cli">Codex</option>
+	                  <option value="claude_cli">Claude</option>
                 </select>
               </label>
               <label>
                 长任务助手
                 <select id="runtimeProvider">
-                  <option value="codex_cli">Codex</option>
-                  <option value="claude_cli">Claude</option>
-                  <option value="codex_exec">Codex Exec</option>
-                  <option value="claude_print">Claude Print</option>
-                  <option value="llm_api">LLM API</option>
+	                  <option value="codex_cli">Codex</option>
+	                  <option value="claude_cli">Claude</option>
                 </select>
               </label>
             </div>
@@ -159,11 +153,7 @@
               <div class="toggle-row">
                 <label><input id="claudeSkipPermissions" type="checkbox" /> Claude skip permissions</label>
               </div>
-              <label>
-                LLM API backend
-                <input id="llmApiBackendId" type="text" placeholder="默认自动选择，例如 deepseek" />
-              </label>
-            </details>
+	            </details>
             <button class="primary-button" type="submit">保存助手配置</button>
           </form>
         </section>
@@ -185,11 +175,8 @@
             <summary>Runtime Runs</summary>
             <form id="runtimeForm" class="runtime-form">
               <select id="runtimeType">
-                <option value="codex_cli">Codex</option>
-                <option value="claude_cli">Claude</option>
-                <option value="codex_exec">Codex Exec</option>
-                <option value="claude_print">Claude Print</option>
-                <option value="llm_api">LLM API</option>
+	                <option value="codex_cli">Codex</option>
+	                <option value="claude_cli">Claude</option>
               </select>
               <textarea id="runtimePrompt" rows="5">请完成一个健康检查任务，并把 result 写入指定文件。</textarea>
               <button type="submit">启动测试任务</button>

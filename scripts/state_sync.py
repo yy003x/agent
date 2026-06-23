@@ -45,6 +45,7 @@ BUILTIN_EXCLUDE = [
     "*.cookie",
     ".DS_Store",
     "runs/tmux",
+    "runs/shared-runtime",
     "runs/workbench/sessions",
     "runs/workbench/server.pid",
     "runs/workbench/server.log",

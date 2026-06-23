@@ -20,15 +20,12 @@ const state = {
 const $ = (id) => document.getElementById(id);
 
 function visibleProvider(value) {
-  const allowed = new Set(["codex_cli", "claude_cli", "codex_exec", "claude_print", "llm_api"]);
+  const allowed = new Set(["codex_cli", "claude_cli"]);
   return allowed.has(value) ? value : "codex_cli";
 }
 
 function providerLabel(value) {
   if (value === "claude_cli") return "Claude";
-  if (value === "codex_exec") return "Codex Exec";
-  if (value === "claude_print") return "Claude Print";
-  if (value === "llm_api") return "LLM API";
   if (value === "fake") return "测试 Runtime";
   return "Codex";
 }
@@ -655,7 +652,6 @@ function setProviderConfigForm(config) {
   $("claudePermissionMode").value = config.claude_permission_mode || "dontAsk";
   $("claudeExtraArgs").value = config.claude_extra_args || "";
   $("claudeSkipPermissions").checked = Boolean(config.claude_skip_permissions);
-  $("llmApiBackendId").value = config.llm_api_backend_id || "";
 }
 
 function readProviderConfigForm() {
@@ -672,7 +668,6 @@ function readProviderConfigForm() {
     claude_permission_mode: $("claudePermissionMode").value.trim() || "dontAsk",
     claude_extra_args: $("claudeExtraArgs").value,
     claude_skip_permissions: $("claudeSkipPermissions").checked,
-    llm_api_backend_id: $("llmApiBackendId").value.trim(),
   };
 }
 
