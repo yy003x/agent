@@ -52,6 +52,29 @@ class MainRuntime:
         )
         return self.executor.start_chat_worker(task)
 
+    def run_chat_turn(
+        self,
+        *,
+        session_id: str,
+        runtime: str,
+        prompt_path: Path,
+        result_path: Path,
+        work_dir: Path,
+        command: str | None = None,
+        timeout_seconds: int = 300,
+        runtime_options: dict | None = None,
+    ) -> dict:
+        return external_cli.run_chat_turn(
+            session_id,
+            runtime,
+            prompt_path,
+            result_path,
+            work_dir,
+            command=command,
+            timeout_seconds=timeout_seconds,
+            runtime_options=runtime_options,
+        )
+
     def send_to_worker(self, runtime_meta: dict, text: str, submit: bool = True) -> None:
         self.executor.send(runtime_meta, text, submit=submit)
 

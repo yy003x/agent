@@ -24,6 +24,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 
 import file_browser
 import health
+import model_backends
 from runtime import MainRuntime
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -35,8 +36,9 @@ CONTENT_RUNTIME = ROOT / "skills" / "content-generate" / "scripts" / "content_ru
 MAIN_RUNTIME = MainRuntime()
 CHAT_WAIT_SECONDS = float(os.environ.get("AGENT_WORKBENCH_CHAT_WAIT_SECONDS", "120"))
 CHAT_RUNTIME = os.environ.get("AGENT_WORKBENCH_CHAT_RUNTIME", MAIN_RUNTIME.default_runtime())
-ALLOWED_RUNTIMES = {"codex_cli", "claude_cli", "fake"}
-USER_RUNTIMES = {"codex_cli", "claude_cli"}
+ALLOWED_RUNTIMES = {"codex_cli", "claude_cli", "codex_exec", "claude_print", "llm_api", "fake"}
+USER_RUNTIMES = {"codex_cli", "claude_cli", "codex_exec", "claude_print", "llm_api"}
+NONINTERACTIVE_RUNTIMES = {"codex_exec", "claude_print", "llm_api", "fake"}
 
 
 def _now() -> str:
@@ -114,6 +116,7 @@ def _default_config() -> dict:
         "claude_permission_mode": effective["claude"]["permission_mode"],
         "claude_skip_permissions": effective["claude"]["skip_permissions"],
         "claude_extra_args": effective["claude"].get("extra_args", ""),
+        "llm_api_backend_id": effective.get("llm_api", {}).get("backend", ""),
     }
 
 
@@ -132,6 +135,7 @@ def _sanitize_config(data: dict) -> dict:
     config["claude_permission_mode"] = str(config.get("claude_permission_mode") or defaults["claude_permission_mode"]).strip()
     config["claude_skip_permissions"] = bool(config.get("claude_skip_permissions"))
     config["claude_extra_args"] = str(config.get("claude_extra_args") or "")
+    config["llm_api_backend_id"] = str(config.get("llm_api_backend_id") or "")
     return config
 
 
@@ -155,6 +159,7 @@ def _runtime_options_from_config(config: dict) -> dict:
         "claude_permission_mode": config["claude_permission_mode"],
         "claude_skip_permissions": config["claude_skip_permissions"],
         "claude_extra_args": config["claude_extra_args"],
+        "llm_api_backend_id": config.get("llm_api_backend_id", ""),
     }
 
 
@@ -162,6 +167,10 @@ def _command_for_runtime(config: dict, runtime: str) -> str | None:
     if runtime == "codex_cli":
         return config["codex_command"]
     if runtime == "claude_cli":
+        return config["claude_command"]
+    if runtime == "codex_exec":
+        return config["codex_command"]
+    if runtime == "claude_print":
         return config["claude_command"]
     return None
 
@@ -174,6 +183,7 @@ def runtime_config_payload(config: dict | None = None) -> dict:
         "effective": MAIN_RUNTIME.effective_runtime_config(options),
         "config_path": str(CONFIG_PATH),
         "allowed_providers": sorted(USER_RUNTIMES),
+        "model_backends": model_backends.collect_model_backends(),
     }
 
 
@@ -727,8 +737,72 @@ def _ensure_chat_runtime(session_id: str, startup_contract_path: Path,
     return runtime_meta, "contract"
 
 
+def _run_direct_chat_turn(session_id: str, turn: dict) -> None:
+    path = _session_dir(session_id)
+    state = _read_json(path / "state.json", {})
+    config = workbench_config()
+    runtime = _valid_runtime(state.get("runtime") or config["chat_provider"], config["chat_provider"])
+    command = state.get("runtime_command") or _command_for_runtime(config, runtime)
+    runtime_options = state.get("runtime_options") or _runtime_options_from_config(config)
+    runtime_meta = MAIN_RUNTIME.run_chat_turn(
+        session_id=turn["turn_id"],
+        runtime=runtime,
+        prompt_path=Path(turn["prompt_path"]),
+        result_path=Path(turn["result_path"]),
+        work_dir=path / "runtime" / "direct",
+        command=command,
+        timeout_seconds=int(CHAT_WAIT_SECONDS),
+        runtime_options=runtime_options,
+    )
+    result = _read_turn_result(turn) or runtime_meta.get("result") or {
+        "status": "failed",
+        "assistant_message": "runtime 已结束，但没有写入 result.json。",
+        "summary": "missing result",
+        "outputs": [],
+        "questions": [],
+        "errors": ["missing result.json"],
+    }
+    _replace_message(
+        session_id,
+        turn["assistant_message_id"],
+        _assistant_text_from_result(result),
+        {"pending": False, "turn_id": turn["turn_id"], "result": result},
+    )
+    _remove_pending_turn(session_id, turn["turn_id"])
+    state["runtime"] = runtime
+    state["runtime_command"] = command
+    state["runtime_options"] = runtime_options
+    state["runtime_meta"] = runtime_meta
+    state["updated_at"] = _now()
+    _write_json(path / "state.json", state)
+    _append_runtime_event(
+        session_id,
+        {
+            "ts": _now(),
+            "type": "runtime.result_ready",
+            "session_id": session_id,
+            "title": "一次性 runtime turn 完成",
+            "status": result.get("status", "success"),
+            "data": {
+                "turn_id": turn["turn_id"],
+                "runtime": runtime,
+                "result_path": turn["result_path"],
+                "provider_run_id": runtime_meta.get("run_id"),
+                "outputs": result.get("outputs", []),
+                "errors": result.get("errors", []),
+            },
+        },
+    )
+
+
 def _deliver_chat_turn(session_id: str, turn: dict, startup_contract_path: Path, result_path: Path, payload: str) -> None:
     try:
+        state = _read_json(_session_dir(session_id) / "state.json", {})
+        config = workbench_config()
+        runtime = _valid_runtime(state.get("runtime") or config["chat_provider"], config["chat_provider"])
+        if runtime in NONINTERACTIVE_RUNTIMES:
+            _run_direct_chat_turn(session_id, turn)
+            return
         runtime_meta, delivery_mode = _ensure_chat_runtime(session_id, startup_contract_path, result_path)
         if runtime_meta.get("runtime") != "fake" and delivery_mode == "send":
             MAIN_RUNTIME.send_to_worker(runtime_meta, payload)
@@ -972,6 +1046,12 @@ def kb_search(query: str, modality: str = "all", topk: int = 10) -> dict:
 def _provider_label(runtime: str | None) -> str:
     if runtime == "claude_cli":
         return "Claude"
+    if runtime == "codex_exec":
+        return "Codex Exec"
+    if runtime == "claude_print":
+        return "Claude Print"
+    if runtime == "llm_api":
+        return "LLM API"
     if runtime == "fake":
         return "测试 Runtime"
     return "Codex"
@@ -1349,6 +1429,8 @@ class WorkbenchHandler(SimpleHTTPRequestHandler):
                 return self._send_json(state_payload())
             if path == "/api/config/runtime":
                 return self._send_json(runtime_config_payload())
+            if path == "/api/model-backends":
+                return self._send_json({"model_backends": model_backends.collect_model_backends()})
             if path == "/api/skills":
                 return self._send_json({"skills": MAIN_RUNTIME.list_skills()})
             if path == "/api/outputs":

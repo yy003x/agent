@@ -68,12 +68,18 @@ check "skills/workbench-session-ops/SKILL.md 存在" "test -f skills/workbench-s
 check "skills/content-generate/SKILL.md 存在" "test -f skills/content-generate/SKILL.md"
 check "scripts/finalize.py 存在" "test -f scripts/finalize.py"
 check "scripts/agent_learning_review.py 存在" "test -f scripts/agent_learning_review.py"
+check "scripts/state_sync.py 存在" "test -f scripts/state_sync.py"
+check "scripts/model_backend_smoke.py 存在" "test -f scripts/model_backend_smoke.py"
+check "scripts/workbench_smoke.py 存在" "test -f scripts/workbench_smoke.py"
 check "apps/scheduler/jobs.json 存在" "test -f apps/scheduler/jobs.json"
 
 echo ""
 echo "[脚本语法]"
 check "finalize.py 语法正常" "python3 -m py_compile scripts/finalize.py"
 check "agent_learning_review.py 语法正常" "python3 -m py_compile scripts/agent_learning_review.py"
+check "state_sync.py 语法正常" "python3 -m py_compile scripts/state_sync.py"
+check "model_backend_smoke.py 语法正常" "python3 -m py_compile scripts/model_backend_smoke.py"
+check "workbench_smoke.py 语法正常" "python3 -m py_compile scripts/workbench_smoke.py"
 check "content_runtime.py 语法正常" "python3 -m py_compile skills/content-generate/scripts/content_runtime.py"
 check "agent skill 脚手架语法正常" "python3 -m py_compile skills/agent-skill-create/scripts/scaffold_skill.py"
 check "scheduler.py 语法正常" "python3 -m py_compile apps/scheduler/scheduler.py"
@@ -84,6 +90,8 @@ check "workbench 语法正常" "python3 -m py_compile apps/workbench/server.py a
 echo ""
 echo "[配置格式]"
 check "apps/scheduler/jobs.json 可解析" "python3 -c 'import json; json.load(open(\"apps/scheduler/jobs.json\"))'"
+check "config/state-sync.example.json 可解析" "python3 -c 'import json; json.load(open(\"config/state-sync.example.json\"))'"
+check "model_tests.example.json 可解析" "python3 -c 'import json; json.load(open(\"model_tests.example.json\"))'"
 check ".claude/settings.json 可解析" "python3 -c 'import json; json.load(open(\".claude/settings.json\"))'"
 check "template settings 可解析" "python3 -c 'import json; json.load(open(\"design/templates/config/settings-claude-code.json\"))'"
 
@@ -104,7 +112,12 @@ check "content_runtime.py plan build --help 可执行" "python3 skills/content-g
 check "finalize.py --help 可执行" "python3 scripts/finalize.py --help"
 check "agent_learning_review.py --dry-run 可执行" "python3 scripts/agent_learning_review.py --dry-run"
 check "agent_learning_review.py promote --help 可执行" "python3 scripts/agent_learning_review.py promote --help"
+check "state_sync.py --help 可执行" "python3 scripts/state_sync.py --help"
+check "state_sync.py plan 可执行" "python3 scripts/state_sync.py plan --limit 3"
 check "workbench server.py --help 语法入口可加载" "python3 -m py_compile apps/workbench/server.py"
+check "workbench_smoke.py --help 可执行" "python3 scripts/workbench_smoke.py --help"
+check "model_backend_smoke.py --help 可执行" "python3 scripts/model_backend_smoke.py --help"
+check "model_backend_smoke.py --list 可执行" "python3 scripts/model_backend_smoke.py --list"
 
 if [ "$MODE" = "e2e" ]; then
   echo ""
@@ -120,6 +133,10 @@ if [ "$MODE" = "e2e" ]; then
   echo ""
   echo "[KB 层]"
   check "LanceDB lance/ 可访问" "python3 -c 'import lancedb; lancedb.connect(\"workspace/kb/lance\")'"
+
+  echo ""
+  echo "[运营闭环 smoke]"
+  check "最小文本运营闭环通过" "python3 scripts/workbench_smoke.py --quiet"
 fi
 
 echo ""

@@ -14,6 +14,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+import model_backends
 from runtime import MainRuntime
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -107,7 +108,15 @@ def collect_health() -> dict:
         _path_check(ROOT / "outputs", "outputs"),
         _path_check(ROOT / "runs", "runs", required=False),
     ]
+    for backend in model_backends.collect_model_backends():
+        checks.append({
+            "id": f"model-{backend['id']}",
+            "label": f"模型后端：{backend['label']}",
+            "status": backend["status"],
+            "detail": f"{backend['protocol']} {backend['model']} {backend['chat_url']} ({backend['detail']})",
+            "protocol": backend["protocol"],
+        })
     counts = {"ok": 0, "warn": 0, "missing": 0}
     for check in checks:
         counts[check["status"]] = counts.get(check["status"], 0) + 1
-    return {"checks": checks, "summary": counts}
+    return {"checks": checks, "summary": counts, "model_backends": model_backends.collect_model_backends()}

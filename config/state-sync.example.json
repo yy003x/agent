@@ -1,0 +1,62 @@
+{
+  "version": 1,
+  "description": "多电脑 state package 默认同步清单。只包含可迁移的本地状态，不包含 secret、虚拟环境和运行日志。",
+  "include": [
+    {
+      "path": "workspace/daily",
+      "required": false,
+      "note": "session 摘要和复盘事实"
+    },
+    {
+      "path": "workspace/resume",
+      "required": false,
+      "note": "未完成任务恢复点"
+    },
+    {
+      "path": "workspace/media-inbox",
+      "required": false,
+      "note": "待整理素材"
+    },
+    {
+      "path": "workspace/media-store",
+      "required": false,
+      "note": "已整理素材"
+    },
+    {
+      "path": "workspace/kb/lance",
+      "required": false,
+      "note": "当前本地知识库事实源"
+    },
+    {
+      "path": "outputs",
+      "required": false,
+      "note": "草稿、成品包和临时交付物"
+    },
+    {
+      "path": "runs/workbench/config.json",
+      "required": false,
+      "note": "工作台 UI 本地偏好；导入到另一台电脑前应人工确认"
+    }
+  ],
+  "exclude": [
+    ".env",
+    ".venv",
+    "venv",
+    "__pycache__",
+    "*.pyc",
+    "*.key",
+    "*.pem",
+    "*.p12",
+    "*.pfx",
+    "*.cookie",
+    ".DS_Store",
+    "runs/tmux",
+    "runs/workbench/sessions",
+    "runs/workbench/server.pid",
+    "runs/workbench/server.log",
+    "runs/workbench-smoke",
+    "runs/model-backend-smoke",
+    "runs/tmp-lancedb-inspect",
+    "runs/tmux-detector-smoke"
+  ]
+}

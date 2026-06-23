@@ -11,13 +11,23 @@ import time
 import uuid
 from pathlib import Path
 
+from .llm_api_provider import LlmApiProvider, LlmApiRunSpec
+from .process_cli_provider import ProcessCliProvider, ProcessCliRunSpec, read_json as provider_read_json, write_json as provider_write_json
+from .shared_runtime import SharedRuntimeAdapter, SharedRuntimeRunSpec, shared_runtime_available
 from .state import RuntimeErrorState
 from .tmux_provider import TmuxProvider, TmuxProviderError, TmuxRunSpec
 
 ROOT = Path(__file__).resolve().parents[3]
 RUNS_DIR = ROOT / "runs" / "tmux"
+PROCESS_RUNS_DIR = ROOT / "runs" / "process-runtime"
+LLM_API_RUNS_DIR = ROOT / "runs" / "llm-api-runtime"
+SHARED_RUNS_DIR = ROOT / "runs" / "shared-runtime"
 SESSION_NAME = os.environ.get("AGENT_WORKBENCH_TMUX_SESSION", "book-agent-workbench")
 DEFAULT_RUNTIME = os.environ.get("AGENT_WORKBENCH_DEFAULT_RUNTIME", "codex_cli")
+INTERACTIVE_RUNTIMES = {"codex_cli", "claude_cli"}
+PROCESS_RUNTIMES = {"codex_exec", "claude_print"}
+NONINTERACTIVE_RUNTIMES = {"fake", "codex_exec", "claude_print", "llm_api"}
+SUPPORTED_RUNTIMES = INTERACTIVE_RUNTIMES | PROCESS_RUNTIMES | {"llm_api", "fake"}
 CODEX_SANDBOX = os.environ.get("AGENT_WORKBENCH_CODEX_SANDBOX", "workspace-write")
 CODEX_APPROVAL = os.environ.get("AGENT_WORKBENCH_CODEX_APPROVAL", "never")
 CODEX_EXTRA_ARGS = os.environ.get("AGENT_WORKBENCH_CODEX_ARGS", "")
@@ -26,6 +36,8 @@ CODEX_NO_ALT_SCREEN = os.environ.get("AGENT_WORKBENCH_CODEX_NO_ALT_SCREEN", "1")
 CLAUDE_EXTRA_ARGS = os.environ.get("AGENT_WORKBENCH_CLAUDE_ARGS", "")
 CLAUDE_PERMISSION_MODE = os.environ.get("AGENT_WORKBENCH_CLAUDE_PERMISSION_MODE", "dontAsk")
 CLAUDE_SKIP_PERMISSIONS = os.environ.get("AGENT_WORKBENCH_CLAUDE_SKIP_PERMISSIONS", "").lower() in {"1", "true", "yes", "on"}
+LLM_API_BACKEND = os.environ.get("AGENT_WORKBENCH_LLM_API_BACKEND", "")
+SHARED_RUNTIME = os.environ.get("AGENT_WORKBENCH_SHARED_RUNTIME", "").lower() in {"1", "true", "yes", "on"}
 TMUX_STARTUP_DELAY_S = float(os.environ.get("AGENT_WORKBENCH_TMUX_STARTUP_DELAY_S", "1.5"))
 TMUX_SUBMIT_DELAY_S = float(os.environ.get("AGENT_WORKBENCH_TMUX_SUBMIT_DELAY_S", "0.15"))
 TMUX_SUBMIT_KEY = os.environ.get("AGENT_WORKBENCH_TMUX_SUBMIT_KEY", "C-m")
@@ -109,7 +121,7 @@ def _provider_error(exc: Exception) -> RuntimeErrorState:
 
 
 def default_runtime() -> str:
-    return DEFAULT_RUNTIME if DEFAULT_RUNTIME in {"codex_cli", "claude_cli"} else "codex_cli"
+    return DEFAULT_RUNTIME if DEFAULT_RUNTIME in SUPPORTED_RUNTIMES - {"fake"} else "codex_cli"
 
 
 def _bool_option(options: dict | None, key: str, default: bool) -> bool:
@@ -162,7 +174,21 @@ def effective_runtime_config(options: dict | None = None) -> dict:
         "prompt_ready_settle_fast_seconds": TMUX_PROMPT_READY_SETTLE_FAST_S,
         "prompt_stable_timeout_seconds": TMUX_PROMPT_STABLE_TIMEOUT_S,
     }
-    return {"codex": codex, "claude": claude, "tmux_submit": tmux_submit}
+    process = {
+        "codex_exec_enabled": True,
+        "claude_print_enabled": True,
+        "runs_dir": str(PROCESS_RUNS_DIR),
+    }
+    llm_api = {
+        "backend": _str_option(options, "llm_api_backend_id", LLM_API_BACKEND),
+        "runs_dir": str(LLM_API_RUNS_DIR),
+    }
+    shared = {
+        "enabled": SHARED_RUNTIME,
+        "available": shared_runtime_available(),
+        "runs_dir": str(SHARED_RUNS_DIR),
+    }
+    return {"codex": codex, "claude": claude, "tmux_submit": tmux_submit, "process": process, "llm_api": llm_api, "shared_runtime": shared}
 
 
 def _quote_args(args: list[str]) -> str:
@@ -225,7 +251,134 @@ def _default_command(runtime: str) -> str:
         return "codex"
     if runtime == "claude_cli":
         return "claude"
+    if runtime == "codex_exec":
+        return "codex"
+    if runtime == "claude_print":
+        return "claude"
+    if runtime == "llm_api":
+        return "llm_api"
     return runtime
+
+
+def _process_args(runtime: str, command: str | None, options: dict | None = None) -> tuple[list[str], str]:
+    if runtime == "codex_exec":
+        cmd = command or "codex"
+        if not shutil.which(cmd):
+            raise RuntimeErrorState(f"{cmd} not found")
+        codex_bypass = _bool_option(options, "codex_bypass", CODEX_BYPASS)
+        codex_sandbox = _str_option(options, "codex_sandbox", CODEX_SANDBOX)
+        codex_approval = _str_option(options, "codex_approval", CODEX_APPROVAL)
+        codex_extra_args = _str_option(options, "codex_extra_args", CODEX_EXTRA_ARGS)
+        args = [cmd, "exec", "--skip-git-repo-check", "--color", "never", "-C", str(ROOT)]
+        if codex_bypass:
+            args.append("--dangerously-bypass-approvals-and-sandbox")
+        else:
+            args.extend(["--sandbox", codex_sandbox, "--ask-for-approval", codex_approval])
+        if codex_extra_args.strip():
+            args.extend(shlex.split(codex_extra_args))
+        args.append("-")
+        return args, "text"
+    if runtime == "claude_print":
+        cmd = command or "claude"
+        if not shutil.which(cmd):
+            raise RuntimeErrorState(f"{cmd} not found")
+        claude_permission_mode = _str_option(options, "claude_permission_mode", CLAUDE_PERMISSION_MODE)
+        claude_extra_args = _str_option(options, "claude_extra_args", CLAUDE_EXTRA_ARGS)
+        args = [cmd, "-p", "--output-format", "json", "--add-dir", str(ROOT)]
+        if claude_permission_mode.strip():
+            args.extend(["--permission-mode", claude_permission_mode])
+        if claude_extra_args.strip():
+            args.extend(shlex.split(claude_extra_args))
+        return args, "claude_json"
+    raise RuntimeErrorState(f"unsupported process runtime: {runtime}")
+
+
+def _prompt_text(prompt_path: Path) -> str:
+    return prompt_path.read_text(encoding="utf-8", errors="ignore") if prompt_path.exists() else ""
+
+
+def _run_noninteractive(
+    *,
+    run_id: str,
+    runtime: str,
+    prompt_text: str,
+    result_path: Path,
+    runtime_dir: Path,
+    command: str | None = None,
+    timeout_seconds: int = 300,
+    runtime_options: dict | None = None,
+) -> dict:
+    if runtime == "fake":
+        return SharedRuntimeAdapter(runtime_dir).run(
+            SharedRuntimeRunSpec(
+                runtime="fake",
+                prompt_text=prompt_text,
+                cwd=ROOT,
+                runtime_dir=runtime_dir,
+                result_file_name=str(result_path),
+                run_id=run_id,
+                timeout_seconds=timeout_seconds,
+            )
+        )
+    if runtime in PROCESS_RUNTIMES:
+        argv, output_mode = _process_args(runtime, command, runtime_options)
+        return ProcessCliProvider(runtime_dir).run(
+            ProcessCliRunSpec(
+                runtime=runtime,
+                argv=argv,
+                cwd=ROOT,
+                runtime_dir=runtime_dir,
+                prompt_text=prompt_text,
+                result_file_name=str(result_path),
+                run_id=run_id,
+                timeout_seconds=timeout_seconds,
+                output_mode=output_mode,
+            )
+        )
+    if runtime == "llm_api":
+        return LlmApiProvider(runtime_dir).run(
+            LlmApiRunSpec(
+                prompt_text=prompt_text,
+                cwd=ROOT,
+                runtime_dir=runtime_dir,
+                result_file_name=str(result_path),
+                run_id=run_id,
+                timeout_seconds=timeout_seconds,
+                backend_id=_str_option(runtime_options, "llm_api_backend_id", LLM_API_BACKEND) or None,
+            )
+        )
+    if SHARED_RUNTIME:
+        return SharedRuntimeAdapter(runtime_dir).run(
+            SharedRuntimeRunSpec(
+                runtime=runtime,
+                prompt_text=prompt_text,
+                cwd=ROOT,
+                runtime_dir=runtime_dir,
+                result_file_name=str(result_path),
+                run_id=run_id,
+                timeout_seconds=timeout_seconds,
+            )
+        )
+    raise RuntimeErrorState(f"unsupported noninteractive runtime: {runtime}")
+
+
+def run_chat_turn(session_id: str, runtime: str, prompt_path: Path, result_path: Path,
+                  work_dir: Path, command: str | None = None,
+                  timeout_seconds: int = 300,
+                  runtime_options: dict | None = None) -> dict:
+    prompt_text = _prompt_text(prompt_path)
+    runtime_dir = work_dir / "provider"
+    run_id = f"{session_id}-{uuid.uuid4().hex[:8]}"
+    return _run_noninteractive(
+        run_id=run_id,
+        runtime=runtime,
+        prompt_text=prompt_text,
+        result_path=result_path,
+        runtime_dir=runtime_dir,
+        command=command,
+        timeout_seconds=timeout_seconds,
+        runtime_options=runtime_options,
+    )
 
 
 def is_pane_alive(pane_id: str) -> bool:
@@ -286,6 +439,18 @@ def send_to_runtime(runtime_meta: dict, text: str, submit: bool = True) -> None:
 
 
 def runtime_meta_status(runtime_meta: dict) -> dict:
+    direct_kind = runtime_meta.get("provider_kind")
+    direct_run_id = runtime_meta.get("run_id")
+    direct_run_dir = runtime_meta.get("run_dir")
+    if direct_kind and direct_run_id and direct_run_dir:
+        runtime_dir = Path(direct_run_dir).parent
+        if direct_kind == "process_cli":
+            return {"ok": True, "kind": direct_kind, **ProcessCliProvider(runtime_dir).status(direct_run_id)}
+        if direct_kind == "llm_api":
+            return {"ok": True, "kind": direct_kind, **LlmApiProvider(runtime_dir).status(direct_run_id)}
+        if direct_kind == "shared_runtime":
+            return {"ok": True, "kind": direct_kind, **SharedRuntimeAdapter(runtime_dir).status(direct_run_id)}
+
     provider_runtime_dir = runtime_meta.get("provider_runtime_dir")
     provider_run_id = runtime_meta.get("provider_run_id")
     if provider_runtime_dir and provider_run_id:
@@ -306,6 +471,18 @@ def runtime_meta_status(runtime_meta: dict) -> dict:
 
 
 def runtime_meta_logs(runtime_meta: dict, max_bytes: int = 40_000) -> dict:
+    direct_kind = runtime_meta.get("provider_kind")
+    direct_run_id = runtime_meta.get("run_id")
+    direct_run_dir = runtime_meta.get("run_dir")
+    if direct_kind and direct_run_id and direct_run_dir:
+        runtime_dir = Path(direct_run_dir).parent
+        if direct_kind == "process_cli":
+            return {"ok": True, "kind": direct_kind, **ProcessCliProvider(runtime_dir).logs(direct_run_id, max_bytes=max_bytes)}
+        if direct_kind == "llm_api":
+            return {"ok": True, "kind": direct_kind, **LlmApiProvider(runtime_dir).logs(direct_run_id, max_bytes=max_bytes)}
+        if direct_kind == "shared_runtime":
+            return {"ok": True, "kind": direct_kind, **SharedRuntimeAdapter(runtime_dir).logs(direct_run_id, max_bytes=max_bytes)}
+
     provider_runtime_dir = runtime_meta.get("provider_runtime_dir")
     provider_run_id = runtime_meta.get("provider_run_id")
     if provider_runtime_dir and provider_run_id:
@@ -326,6 +503,14 @@ def runtime_meta_logs(runtime_meta: dict, max_bytes: int = 40_000) -> dict:
 
 
 def stop_runtime_meta(runtime_meta: dict) -> None:
+    direct_kind = runtime_meta.get("provider_kind")
+    direct_run_dir = runtime_meta.get("run_dir")
+    if direct_kind and direct_run_dir:
+        status_path = Path(direct_run_dir) / "status.json"
+        status = provider_read_json(status_path, {}) or {}
+        provider_write_json(status_path, {**status, "state": "stopped", "updated_at": _now()})
+        return
+
     provider_runtime_dir = runtime_meta.get("provider_runtime_dir")
     provider_run_id = runtime_meta.get("provider_run_id")
     if provider_runtime_dir and provider_run_id:
@@ -409,6 +594,20 @@ def start_chat_pane(session_id: str, runtime: str, prompt_path: Path, result_pat
 
 def start_run(runtime: str, prompt: str, command: str | None = None,
               timeout_seconds: int = 1800, runtime_options: dict | None = None) -> dict:
+    if runtime in NONINTERACTIVE_RUNTIMES or (runtime not in INTERACTIVE_RUNTIMES and SHARED_RUNTIME):
+        RUNS_DIR.mkdir(parents=True, exist_ok=True)
+        run_id = f"run-{uuid.uuid4().hex[:12]}"
+        result_path = RUNS_DIR / run_id / "result.json"
+        return _run_noninteractive(
+            run_id=run_id,
+            runtime=runtime,
+            prompt_text=prompt,
+            result_path=result_path,
+            runtime_dir=RUNS_DIR,
+            command=command,
+            timeout_seconds=timeout_seconds,
+            runtime_options=runtime_options,
+        )
     _ensure_tmux()
     RUNS_DIR.mkdir(parents=True, exist_ok=True)
     run_id = f"run-{uuid.uuid4().hex[:12]}"
@@ -477,6 +676,15 @@ def _pane_alive(pane_id: str) -> bool:
 
 
 def status_run(run_id: str) -> dict:
+    meta = provider_read_json(RUNS_DIR / run_id / "meta.json", {}) or {}
+    kind = meta.get("provider_kind")
+    if kind == "process_cli":
+        return ProcessCliProvider(RUNS_DIR).status(run_id)
+    if kind == "llm_api":
+        return LlmApiProvider(RUNS_DIR).status(run_id)
+    if kind == "shared_runtime":
+        return SharedRuntimeAdapter(RUNS_DIR).status(run_id)
+
     try:
         status = _provider(RUNS_DIR).status(run_id)
     except TmuxProviderError as exc:
@@ -519,6 +727,15 @@ def list_runs() -> list[dict]:
 
 
 def logs(run_id: str, max_bytes: int = 120_000) -> dict:
+    meta = provider_read_json(RUNS_DIR / run_id / "meta.json", {}) or {}
+    kind = meta.get("provider_kind")
+    if kind == "process_cli":
+        return ProcessCliProvider(RUNS_DIR).logs(run_id, max_bytes=max_bytes)
+    if kind == "llm_api":
+        return LlmApiProvider(RUNS_DIR).logs(run_id, max_bytes=max_bytes)
+    if kind == "shared_runtime":
+        return SharedRuntimeAdapter(RUNS_DIR).logs(run_id, max_bytes=max_bytes)
+
     try:
         text = _provider(RUNS_DIR).logs(run_id, max_bytes=max_bytes)
     except TmuxProviderError as exc:
@@ -537,6 +754,14 @@ def send(run_id: str, text: str) -> dict:
 
 
 def stop(run_id: str) -> dict:
+    meta_path = RUNS_DIR / run_id / "meta.json"
+    meta = provider_read_json(meta_path, {}) or {}
+    if meta.get("provider_kind") in {"process_cli", "llm_api", "shared_runtime"}:
+        status_path = RUNS_DIR / run_id / "status.json"
+        status = provider_read_json(status_path, {}) or meta
+        provider_write_json(status_path, {**status, "state": "stopped", "updated_at": _now()})
+        return status_run(run_id)
+
     try:
         meta = _provider(RUNS_DIR)._load_meta(run_id)
         _provider(RUNS_DIR).stop(run_id)

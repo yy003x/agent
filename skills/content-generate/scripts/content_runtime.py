@@ -44,12 +44,12 @@ from pathlib import Path
 # ─────────────────────────── 全局常量 ───────────────────────────
 
 ROOT = Path(__file__).resolve().parents[3]   # skills/content-generate/scripts/ → 项目根
-KB_DIR = ROOT / "workspace" / "kb"
-LANCE_DIR = KB_DIR / "lance"
-MEDIA_STORE = ROOT / "workspace" / "media-store"
+KB_DIR = Path(os.environ.get("CONTENT_RUNTIME_KB_DIR", ROOT / "workspace" / "kb")).expanduser()
+LANCE_DIR = Path(os.environ.get("CONTENT_RUNTIME_LANCE_DIR", KB_DIR / "lance")).expanduser()
+MEDIA_STORE = Path(os.environ.get("CONTENT_RUNTIME_MEDIA_STORE", ROOT / "workspace" / "media-store")).expanduser()
 SEARCH_LOG = KB_DIR / "search-log.jsonl"
 CAPTION_CACHE = KB_DIR / "caption-cache.json"
-RUNS_DIR = ROOT / "runs" / "content-runtime"
+RUNS_DIR = Path(os.environ.get("CONTENT_RUNTIME_RUNS_DIR", ROOT / "runs" / "content-runtime")).expanduser()
 ACTIVITY_FILE = ROOT / "workspace" / ".finalize-activity.json"
 
 # 模型（见 04-knowledge-base.md §2）
@@ -62,6 +62,7 @@ CODEX_MODEL = os.environ.get("AGENT_CODEX_MODEL", "")
 CODEX_PROFILE = os.environ.get("AGENT_CODEX_PROFILE", "")
 CODEX_TIMEOUT_S = int(os.environ.get("AGENT_CODEX_TIMEOUT_S", "180"))
 Q_INSTRUCTION = "为这个句子生成表示以用于检索相关文章："
+TEST_HASH_EMBEDDING = os.environ.get("CONTENT_RUNTIME_TEST_EMBEDDING", "").lower() in {"1", "true", "yes", "hash"}
 
 # 检索管线参数（见 04-knowledge-base.md §7）
 VEC_TOPN = 30
@@ -244,6 +245,22 @@ def get_reranker():
     return _reranker or None
 
 
+def _hash_embedding(text: str, salt: str) -> list[float]:
+    """Deterministic lightweight embedding for isolated smoke tests."""
+    values: list[float] = []
+    seed = f"{salt}:{text}".encode("utf-8")
+    counter = 0
+    while len(values) < EMBED_DIM:
+        digest = hashlib.sha256(seed + str(counter).encode("ascii")).digest()
+        for byte in digest:
+            values.append((byte / 127.5) - 1.0)
+            if len(values) >= EMBED_DIM:
+                break
+        counter += 1
+    norm = sum(v * v for v in values) ** 0.5 or 1.0
+    return [float(v / norm) for v in values]
+
+
 def _ensure_jieba():
     global _jieba_ready
     if not _jieba_ready:
@@ -259,11 +276,15 @@ def jieba_seg(text: str) -> str:
 
 
 def embed_doc(text: str) -> list[float]:
+    if TEST_HASH_EMBEDDING:
+        return _hash_embedding(text[:2000], "doc")
     vec = get_embedder().encode(text[:2000], normalize_embeddings=True)
     return [float(x) for x in vec]
 
 
 def embed_query(query: str) -> list[float]:
+    if TEST_HASH_EMBEDDING:
+        return _hash_embedding(Q_INSTRUCTION + query, "query")
     vec = get_embedder().encode(Q_INSTRUCTION + query, normalize_embeddings=True)
     return [float(x) for x in vec]
 

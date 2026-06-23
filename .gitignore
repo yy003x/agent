@@ -1,5 +1,7 @@
 # === 敏感信息 ===
 .env
+/config.json
+model_tests.json
 *.key
 *.pem
 
