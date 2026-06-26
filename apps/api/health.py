@@ -14,8 +14,9 @@ import subprocess
 import sys
 from pathlib import Path
 
-import model_backends
 from runtime import MainRuntime
+from runtime import model_backends
+from runtime.shared_runtime import shared_runtime_available
 
 ROOT = Path(__file__).resolve().parents[2]
 MAIN_RUNTIME = MainRuntime()
@@ -97,6 +98,12 @@ def collect_health() -> dict:
             "label": "tmux detector/自动发送",
             "status": "ok",
             "detail": json.dumps(runtime_cfg["tmux_submit"], ensure_ascii=False),
+        },
+        {
+            "id": "shared-runtime",
+            "label": "Shared Runtime",
+            "status": "ok" if shared_runtime_available() else "missing",
+            "detail": str(runtime_cfg["shared_runtime"].get("cli", "")),
         },
         _command_check("ffmpeg", "ffmpeg", ["-version"]),
         _module_check("lancedb", "LanceDB", required=False),

@@ -8,6 +8,12 @@
 
 set -e
 
+ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$ROOT_DIR"
+if [ -x "$ROOT_DIR/.venv/bin/python" ]; then
+  export PATH="$ROOT_DIR/.venv/bin:$PATH"
+fi
+
 MODE="${1:---quick}"
 case "$MODE" in
   --quick|quick) MODE="quick" ;;
@@ -30,7 +36,7 @@ SHARED_RUNTIME_CLI="${AGENT_SHARED_RUNTIME_CLI:-/Users/yang/agents/runtime/scrip
 check() {
   local name="$1"
   local cmd="$2"
-  if eval "$cmd" &>/dev/null; then
+  if ( eval "$cmd" ) &>/dev/null; then
     echo "  ✓ $name"
     PASS=$((PASS+1))
   else
@@ -86,7 +92,15 @@ check "agent skill 脚手架语法正常" "python3 -m py_compile skills/agent-sk
 check "scheduler.py 语法正常" "python3 -m py_compile apps/scheduler/scheduler.py"
 check "orchestrator.py 语法正常" "python3 -m py_compile apps/agent/orchestrator.py"
 check "brain.py 语法正常" "python3 -m py_compile apps/agent/brain.py"
-check "workbench 语法正常" "python3 -m py_compile apps/workbench/server.py apps/workbench/health.py apps/workbench/file_browser.py apps/workbench/runtime/*.py"
+check "runtime 包语法正常" "python3 -m py_compile runtime/*.py"
+check "FastAPI 工作台语法正常" "python3 -m py_compile apps/api/*.py apps/api/services/*.py apps/workbench/server.py"
+check "Web 工作台配置存在" "test -f apps/web/package.json && test -f apps/web/src/App.tsx"
+if [ -d apps/web/node_modules ]; then
+  check "Web 工作台 typecheck" "cd apps/web && npm run typecheck"
+  check "Web 工作台 build" "cd apps/web && npm run build"
+else
+  check "Web 依赖未安装时跳过构建" "test -f apps/web/package.json"
+fi
 
 echo ""
 echo "[配置格式]"
@@ -115,7 +129,8 @@ check "agent_learning_review.py --dry-run 可执行" "python3 scripts/agent_lear
 check "agent_learning_review.py promote --help 可执行" "python3 scripts/agent_learning_review.py promote --help"
 check "state_sync.py --help 可执行" "python3 scripts/state_sync.py --help"
 check "state_sync.py plan 可执行" "python3 scripts/state_sync.py plan --limit 3"
-check "workbench server.py --help 语法入口可加载" "python3 -m py_compile apps/workbench/server.py"
+check "FastAPI app 可导入" "python3 -c 'from apps.api.main import app; assert app.title'"
+check "workbench server.py --help 可执行" "python3 apps/workbench/server.py --help"
 check "workbench_smoke.py --help 可执行" "python3 scripts/workbench_smoke.py --help"
 check "model_backend_smoke.py --help 可执行" "python3 scripts/model_backend_smoke.py --help"
 check "model_backend_smoke.py --list 可执行" "python3 scripts/model_backend_smoke.py --list"

@@ -12,7 +12,7 @@ from pathlib import Path
 from .shared_runtime import SharedRuntimeAdapter, SharedRuntimeRunSpec, shared_runtime_available
 from .state import RuntimeErrorState
 
-ROOT = Path(__file__).resolve().parents[3]
+ROOT = Path(__file__).resolve().parents[1]
 RUNS_DIR = ROOT / "runs" / "shared-runtime"
 DEFAULT_RUNTIME = os.environ.get("AGENT_WORKBENCH_DEFAULT_RUNTIME", "codex_cli")
 INTERACTIVE_RUNTIMES = {"codex_cli", "claude_cli"}

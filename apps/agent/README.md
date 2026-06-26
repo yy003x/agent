@@ -46,7 +46,7 @@ python skills/content-generate/scripts/content_runtime.py kb ingest \
 | `AGENT_CODEX_PROFILE` | 空 | legacy 可选，透传给旧 `codex exec --profile` |
 | `AGENT_CODEX_TIMEOUT_S` | `180` | 单次 Codex CLI 窄任务超时时间 |
 
-工作台目标态会新增 provider-neutral 配置，例如 `AGENT_LLM_BACKEND=tmux_cli|offline_template`、`AGENT_CLI_RUNTIME=codex_cli|claude_cli`。工作台托管路径不使用 `codex exec` 或 `claude -p`。
+工作台拆分后，GUI/API 路径由 `apps/api/` 调用项目级 `runtime/`，配置继续保持 provider-neutral，例如 `AGENT_LLM_BACKEND=tmux_cli|offline_template`、`AGENT_CLI_RUNTIME=codex_cli|claude_cli`。工作台托管路径不使用 `codex exec` 或 `claude -p`。
 
 ## 降级行为（无智能 runtime / 缺依赖）
 

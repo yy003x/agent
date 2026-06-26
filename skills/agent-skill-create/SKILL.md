@@ -17,7 +17,7 @@ metadata:
 skills/<skill-name>/SKILL.md
 ```
 
-`apps/workbench/runtime/skill_registry.py` 会扫描这些文件，并通过 GUI 的 Skill 能力面板展示。当前项目不要求 `skills/index.json` 或 `agents/openai.yaml`。
+`runtime/skill_registry.py` 会扫描这些文件，并通过 GUI 的 Skill 能力面板展示。当前项目不要求 `skills/index.json` 或 `agents/openai.yaml`。
 
 ## 执行流程
 
@@ -65,7 +65,7 @@ metadata:
 bash scripts/validate.sh --quick
 python3 - <<'PY'
 from pathlib import Path
-from apps.workbench.runtime.skill_registry import SkillRegistry
+from runtime.skill_registry import SkillRegistry
 skills = SkillRegistry(Path("skills"), Path(".")).list()
 print([item["name"] for item in skills])
 PY

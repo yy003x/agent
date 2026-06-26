@@ -231,6 +231,8 @@ outputs/YYYY-MM-DD/
 
 ## 7. Python 服务设计
 
+当前实现已进一步拆为 `apps/api/`、`apps/web/` 和项目级 `runtime/`；以下早期目录草案保留为模块职责参考。
+
 建议新增目录：
 
 ```text
@@ -420,7 +422,7 @@ External CLI Worker Runtime
 
 `Skill Registry` 由 `MainRuntime` 托管，扫描项目根 `skills/*/SKILL.md` 并在系统面板展示。第一版只读展示 skill 名称、类别、触发摘要、步骤能力、脚本路径；不在 UI 上直接执行 skill，避免绕过确认和写操作门禁。
 
-命名边界：`apps/workbench/` 是工作台应用边界，包含本地 Python service、runtime、provider、skill registry 和静态界面；其中 `runtime/`、`static/` 分别承载运行时与前端职责。
+命名边界：当前实现中 `apps/api/` 是 Python service 边界，`apps/web/` 是前端边界，项目级 `runtime/` 是 runtime、provider、skill registry 边界。`apps/workbench/` 只保留兼容启动入口。
 
 ### 9.1 原则
 

@@ -8,6 +8,12 @@
 
 set -e
 
+ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$ROOT_DIR"
+if [ -x "$ROOT_DIR/.venv/bin/python" ]; then
+  export PATH="$ROOT_DIR/.venv/bin:$PATH"
+fi
+
 MODE="${1:---quick}"
 case "$MODE" in
   --quick|quick) MODE="quick" ;;
@@ -29,7 +35,7 @@ FAIL=0
 check() {
   local name="$1"
   local cmd="$2"
-  if eval "$cmd" &>/dev/null; then
+  if ( eval "$cmd" ) &>/dev/null; then
     echo "  ✓ $name"
     PASS=$((PASS+1))
   else
@@ -79,7 +85,8 @@ check "agent skill 脚手架语法正常" "python3 -m py_compile skills/agent-sk
 check "scheduler.py 语法正常" "python3 -m py_compile apps/scheduler/scheduler.py"
 check "orchestrator.py 语法正常" "python3 -m py_compile apps/agent/orchestrator.py"
 check "brain.py 语法正常" "python3 -m py_compile apps/agent/brain.py"
-check "workbench 语法正常" "python3 -m py_compile apps/workbench/server.py apps/workbench/health.py apps/workbench/file_browser.py apps/workbench/runtime/*.py"
+check "runtime 包语法正常" "python3 -m py_compile runtime/*.py"
+check "FastAPI 工作台语法正常" "python3 -m py_compile apps/api/*.py apps/api/services/*.py apps/workbench/server.py"
 
 echo ""
 echo "[配置格式]"

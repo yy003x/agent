@@ -67,8 +67,10 @@ cat runs/workbench/sessions/<session_id>/runtime/provider/<run_id>/status.json
 
 ```bash
 tmux new-session -d -s agent_workbench_server -c /Users/yang/agents/agent \
-  'python apps/workbench/server.py 8765 >> runs/workbench/server.log 2>&1'
+  'python -m uvicorn apps.api.main:app --host 127.0.0.1 --port 8765 >> runs/workbench/server.log 2>&1'
 ```
+
+旧命令 `python apps/workbench/server.py 8765` 仍可作为兼容入口使用。
 
 ## 输出契约
 

@@ -187,7 +187,7 @@ External CLI Worker Runtime 底层必须通过 provider 边界实现：
 - `main.py`：作为 UI / health 的唯一 runtime 入口，组合 Planner、Executor、Observer、State、Skill Registry 和 Task Store。
 - `Skill Registry`：扫描项目根 `skills/*/SKILL.md`，作为工作台可展示、可调度的 skill 能力事实源；第一版只读展示，执行仍由 workflow/runtime 明确触发。
 
-目录命名说明：当前实现路径为 `apps/workbench/`，这是工作台应用边界；其中 `static/` 承载前端界面，`runtime/` 承载 External CLI Worker Runtime 和 provider。
+目录命名说明：当前实现已拆为 `apps/api/`、`apps/web/` 和项目级 `runtime/`。`apps/workbench/` 只保留旧启动命令的兼容壳；`apps/api/` 承载 FastAPI 服务，`apps/web/` 承载 React + TypeScript 前端，`runtime/` 承载 External CLI Worker Runtime 和 provider。
 
 ---
 
@@ -524,17 +524,19 @@ default_style = "知识科普"
 
 交付：
 
-- `apps/workbench/server.py`
-- `static/index.html`
-- `health.py`
-- `file_browser.py`
+- `apps/api/main.py`
+- `apps/api/health.py`
+- `apps/api/file_browser.py`
+- `apps/api/services/workbench.py`
+- `apps/web/`
 - `runtime/main.py`
 - `runtime/external_cli.py`
-- `runtime/tmux_provider.py`
+- shared runtime provider 适配
 
 验收：
 
 - `python apps/workbench/server.py 8765` 可启动。
+- `python -m uvicorn apps.api.main:app --host 127.0.0.1 --port 8765` 可启动。
 - `http://127.0.0.1:8765` 可打开。
 - fake tmux run 能写 result file。
 
@@ -559,9 +561,9 @@ default_style = "知识科普"
 
 交付：
 
-- `apps/workbench/runtime/main.py`
-- `apps/workbench/runtime/external_cli.py`
-- `apps/workbench/runtime/tmux_provider.py`
+- `runtime/main.py`
+- `runtime/external_cli.py`
+- shared runtime provider 适配
 - `ExternalCliWorkerRuntime`：默认 `codex_cli`，可配置 `claude_cli`
 - `OfflineTemplateRuntime`
 - API backend 接口占位，但不是第一版默认路径
@@ -641,7 +643,7 @@ default_style = "知识科普"
 
 截至本文创建时：
 
-- 已有 `apps/workbench/` 第一版壳：聊天、健康、文件预览、KB 搜索包装、fake/tmux runtime。
+- 已完成 FastAPI + TypeScript 拆分：`apps/api/` 为后端入口，`apps/web/` 为前端入口，`runtime/` 为智能运行时入口，`apps/workbench/` 为兼容壳。
 - `orchestrator.py` 仍是终端状态机，尚未拆成 controller。
 - `brain.py` 和 `content_runtime.py` 仍有 legacy `codex exec` 调用，尚未迁移到工作台 tmux 真会话 runtime。
 - `claude_cli` 通过配置启用，LLM API backend 是未来扩展，尚未完成业务编排接入。
@@ -661,7 +663,9 @@ bash scripts/validate.sh --quick
 GUI smoke：
 
 ```bash
-python apps/workbench/server.py 8765
+python -m uvicorn apps.api.main:app --host 127.0.0.1 --port 8765
+# 兼容旧命令：
+# python apps/workbench/server.py 8765
 curl -I http://127.0.0.1:8765/
 curl http://127.0.0.1:8765/api/health
 ```

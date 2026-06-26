@@ -12,6 +12,11 @@ __pycache__/
 venv/
 *.egg-info/
 
+# === Node / Web ===
+node_modules/
+apps/web/node_modules/
+apps/web/dist/
+
 # === macOS ===
 .DS_Store
 

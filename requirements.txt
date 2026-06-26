@@ -10,3 +10,6 @@ apscheduler>=3.10           # 定时任务（ingest / learn / gc）
 pillow>=10.0               # 图片 resize / 拼版
 pdfplumber>=0.11            # PDF 文档解析（可选，doc ingest 用）
 requests>=2.32             # 多模型 OpenAI-compatible HTTP API 调用
+fastapi>=0.115             # 工作台 API 服务
+uvicorn[standard]>=0.30    # FastAPI 本地启动
+pydantic>=2.8              # API 请求/响应 schema

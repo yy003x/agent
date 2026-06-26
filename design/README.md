@@ -49,14 +49,15 @@ finalize 沉淀（session 记录）
 
 1. **本文件（README.md）** — 总览与阅读入口
 2. **00-workbench-0-1-redesign.md** — 新主设计，从 0 到 1 的目标态、模块边界、路线和验收
-3. **06-graphical-agent-workbench.md** — GUI 工作台与 tmux runtime 技术细节参考
-4. **07-runtime-workbench-product-design.md** — 运行工作台产品设计：运营视角的信息架构、tab 分层和验收
-5. **04-knowledge-base.md** — 知识库层独立设计
-6. **03-content-agent.md** — 内容生成应用层和成品包规格
-7. **01-framework.md** — rules / skills / routing / finalize 机制
-8. **02-self-evolution.md** — 自我进化规格
-9. **05-implementation-steps.md** — P0-P5 已有基线实现历史路线
-10. **templates/** — 可复制的入口、规则、skill、配置模板
+3. **08-fastapi-ts-workbench-refactor.md** — 当前实现拆分：`apps/api`、`apps/web`、`runtime`
+4. **06-graphical-agent-workbench.md** — GUI 工作台与 tmux runtime 技术细节参考
+5. **07-runtime-workbench-product-design.md** — 运行工作台产品设计：运营视角的信息架构、tab 分层和验收
+6. **04-knowledge-base.md** — 知识库层独立设计
+7. **03-content-agent.md** — 内容生成应用层和成品包规格
+8. **01-framework.md** — rules / skills / routing / finalize 机制
+9. **02-self-evolution.md** — 自我进化规格
+10. **05-implementation-steps.md** — P0-P5 已有基线实现历史路线
+11. **templates/** — 可复制的入口、规则、skill、配置模板
 
 ---
 
@@ -73,6 +74,7 @@ design/
 ├── 05-implementation-steps.md            ← 当前实现步骤（P0-P5）
 ├── 06-graphical-agent-workbench.md       ← 工作台设计（Web UI + tmux CLI runtime）
 ├── 07-runtime-workbench-product-design.md ← 运行工作台产品设计（运营视角 UI 分层）
+├── 08-fastapi-ts-workbench-refactor.md    ← FastAPI + TypeScript 前后端分离重构
 └── templates/                           ← 构建时复制/实现的文件模板
     ├── AGENTS.md                        ← 学而思图书运营协作入口（完整内容，直接使用）
     ├── rules/
@@ -176,9 +178,13 @@ P1–P3 验收需要一个最小素材集。构建时在项目根创建 `test-da
 │   ├── agent_learning_review.py       ← 按 02-self-evolution.md 规格实现
 │   └── validate.sh                    ← 从 templates/config/ 复制后补全
 ├── apps/
+│   ├── api/                             ← FastAPI 工作台 API
+│   ├── web/                             ← React + TypeScript 工作台前端
+│   ├── workbench/                       ← 旧启动命令兼容壳
 │   └── scheduler/
 │       ├── scheduler.py               ← 按 01-framework.md 规格实现
 │       └── jobs.json                  ← 按 02-self-evolution.md 内容创建
+├── runtime/                            ← MainRuntime / provider / skill registry
 ├── workspace/                         ← 不进 Git（.gitignore 排除）
 │   ├── kb/
 │   │   └── lance/                     ← LanceDB 数据目录（首次 init 自动创建）
