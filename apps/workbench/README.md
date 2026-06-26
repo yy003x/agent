@@ -10,17 +10,20 @@
 
 ## 启动
 
-后端：
+推荐使用项目根目录的 Makefile 统一管理前后端：
 
 ```bash
-python -m uvicorn apps.api.main:app --host 127.0.0.1 --port 8765
+make start
+make status
+make logs
+make stop
 ```
 
-前端开发服务：
+默认端口：
 
-```bash
-cd apps/web
-npm run dev
+```text
+API: http://127.0.0.1:8765
+Web: http://127.0.0.1:5173
 ```
 
 旧命令仍可启动新的 FastAPI 服务：
@@ -28,6 +31,8 @@ npm run dev
 ```bash
 python apps/workbench/server.py 8765
 ```
+
+旧命令是前台兼容入口；常驻运行时使用 `make` 或 `scripts/workbench_service.py`，支持 `list` / `status` / `logs` / `stop` / `restart`。
 
 ## 兼容说明
 

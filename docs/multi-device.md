@@ -37,7 +37,7 @@
 
 - `.env`、token、key、cookie、private key、完整 JWT。
 - `.venv/`、`venv/`、`__pycache__/`、`*.pyc`。
-- `runs/tmux/`、`runs/workbench/sessions/`、`runs/workbench/server.pid`、`runs/workbench/server.log`。
+- `runs/tmux/`、`runs/workbench/sessions/`、`runs/workbench/services/`、`runs/workbench/server*.log`、`runs/workbench/web*.log`。
 - 临时 smoke 目录和纯运行日志。
 
 ## 常用流程

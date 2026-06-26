@@ -24,6 +24,7 @@ metadata:
 常用只读检查：
 
 ```bash
+make status
 curl -sS http://127.0.0.1:8765/api/health
 curl -sS http://127.0.0.1:8765/api/skills
 tmux list-sessions
@@ -61,16 +62,34 @@ cat runs/workbench/sessions/<session_id>/runtime/provider/<run_id>/status.json
 
 优先调用 UI API，让服务先停止绑定 tmux pane，再物理删除目录。直接 `rm -rf` 只能在 API 不可用、用户明确确认且路径核对后执行。
 
-### 步骤 6：服务启动
+### 步骤 6：服务启动与控制
 
-推荐使用 tmux detached session 保持本地服务运行：
+推荐使用 Makefile 管理 API + Web，避免再把 API 服务挂在 tmux pane 里：
 
 ```bash
-tmux new-session -d -s agent_workbench_server -c /Users/yang/agents/agent \
-  'python -m uvicorn apps.api.main:app --host 127.0.0.1 --port 8765 >> runs/workbench/server.log 2>&1'
+make start
+make status
+make logs
+make stop
+make restart
 ```
 
-旧命令 `python apps/workbench/server.py 8765` 仍可作为兼容入口使用。
+单独控制 API 或 Web：
+
+```bash
+make api-start
+make api-stop
+make web-start
+make web-stop
+```
+
+如果发现历史 tmux session（如 `agent_workbench_api_8766`）仍在运行，`list` 会显示为 `legacy-tmux`。替换为后台服务时显式执行：
+
+```bash
+python3 scripts/workbench_service.py restart --port 8766 --replace-legacy-tmux
+```
+
+旧命令 `python apps/workbench/server.py 8765` 仍可作为前台兼容入口使用，但不再推荐作为常驻启动方式。
 
 ## 输出契约
 
@@ -90,7 +109,7 @@ tmux new-session -d -s agent_workbench_server -c /Users/yang/agents/agent \
 bash scripts/validate.sh --quick
 ```
 
-实际运维任务结束后，检查 `/api/health` 或相关 session 路径。
+实际运维任务结束后，检查 `make status`、`/api/health` 或相关 session 路径。
 
 ## 完成标准
 
