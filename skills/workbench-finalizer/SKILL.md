@@ -69,6 +69,8 @@ python3 scripts/finalize.py mark \
 
 Stop hook 会消费标记；显式 `record` 会避免重复记录。
 
+Stop hook 入口由 Codex 解析 stdout，`scripts/finalize.py hook` 必须只在 stdout 输出 hook JSON；诊断日志写 stderr。
+
 ## 输出契约
 
 - session 输出：`workspace/daily/YYYY-MM-DD/session-<8位>.md`。

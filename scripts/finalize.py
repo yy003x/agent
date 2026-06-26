@@ -6,7 +6,7 @@
 用法：
   python scripts/finalize.py record [--skill <name>] [--status success|partial|failed]
                                     [--summary "<一句话摘要>"] [--handoff]
-  python scripts/finalize.py hook     # Stop hook 兜底：无实质性信号时跳过
+  python scripts/finalize.py hook     # Stop hook 兜底：stdout 输出 hook JSON
   python scripts/finalize.py mark     # 运行时写操作标记，供 hook 兜底消费
   python scripts/finalize.py snapshot   # 读 git status/diff，判定状态，输出 JSON
 
@@ -35,6 +35,15 @@ DAILY_DIR = ROOT / "workspace" / "daily"
 RESUME_DIR = ROOT / "workspace" / "resume"
 ACTIVITY_FILE = WORKSPACE_DIR / ".finalize-activity.json"
 LAST_RECORD_FILE = WORKSPACE_DIR / ".finalize-last-record.json"
+
+
+def _log(message: str, *, file=sys.stdout) -> None:
+    print(message, file=file)
+
+
+def _emit_stop_hook_output() -> None:
+    """Stop hook stdout must be valid JSON; human logs belong on stderr."""
+    print(json.dumps({}, ensure_ascii=False))
 
 
 def _run_git(args: list[str]) -> str | None:
@@ -184,21 +193,23 @@ def cmd_record(args: argparse.Namespace) -> int:
     clear_activity()
     mark_recorded(path)
     rel = path.relative_to(ROOT)
-    print(f"[finalize] session 已写入：{rel}")
+    _log(f"[finalize] session 已写入：{rel}")
     return 0
 
 
-def cmd_hook(args: argparse.Namespace) -> int:
+def _cmd_hook(args: argparse.Namespace) -> int:
     """Stop hook 兜底入口：只在有明确实质性信号时写入，避免纯问答产生空 session。"""
     activity = _read_json_file(ACTIVITY_FILE)
     if recently_recorded() and not activity:
-        print("[finalize] hook skip：最近已显式写入 session")
+        _log("[finalize] hook skip：最近已显式写入 session", file=sys.stderr)
+        _emit_stop_hook_output()
         return 0
 
     snap = git_snapshot()
     changed = snap.get("files_changed") or []
     if not changed and not activity:
-        print("[finalize] hook skip：未检测到实质性任务信号")
+        _log("[finalize] hook skip：未检测到实质性任务信号", file=sys.stderr)
+        _emit_stop_hook_output()
         return 0
 
     summary = activity.get("summary") or f"Stop hook 自动记录：检测到 {len(changed)} 个 Git 工作区变更。"
@@ -213,7 +224,17 @@ def cmd_hook(args: argparse.Namespace) -> int:
     clear_activity()
     mark_recorded(path)
     rel = path.relative_to(ROOT)
-    print(f"[finalize] hook session 已写入：{rel}")
+    _log(f"[finalize] hook session 已写入：{rel}", file=sys.stderr)
+    _emit_stop_hook_output()
+    return 0
+
+
+def cmd_hook(args: argparse.Namespace) -> int:
+    try:
+        return _cmd_hook(args)
+    except Exception as exc:  # noqa: BLE001 - Stop hook must not break Codex turns.
+        _log(f"[finalize] hook error：{exc}", file=sys.stderr)
+        _emit_stop_hook_output()
     return 0
 
 
@@ -224,7 +245,7 @@ def cmd_mark(args: argparse.Namespace) -> int:
         summary=args.summary,
         source=args.source,
     )
-    print(f"[finalize] activity 已标记：{ACTIVITY_FILE.relative_to(ROOT)}")
+    _log(f"[finalize] activity 已标记：{ACTIVITY_FILE.relative_to(ROOT)}")
     return 0
 
 
