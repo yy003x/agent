@@ -1,0 +1,4 @@
+runs_dir: runs
+default_project: _default
+default_profile: codex-cli
+max_concurrency: 1

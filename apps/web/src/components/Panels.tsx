@@ -73,7 +73,7 @@ export function SettingsPanel({ config, health, choices, allChoices, onSubmit, o
       <div className="status-row">
         <span className={`pill ${statusClass(checks.codex?.status)}`}>Codex {checks.codex?.status || "unknown"}</span>
         <span className={`pill ${statusClass(checks.claude?.status)}`}>Claude {checks.claude?.status || "unknown"}</span>
-        <span className={`pill ${statusClass(checks["shared-runtime"]?.status)}`}>Runtime {checks["shared-runtime"]?.status || "unknown"}</span>
+        <span className={`pill ${statusClass(checks["agentrun-runtime"]?.status)}`}>AgentRun {checks["agentrun-runtime"]?.status || "unknown"}</span>
       </div>
       <div className="form-grid">
         <RuntimeSelector label="聊天助手" prefix="chat" config={config} choices={runtimeChoices} />

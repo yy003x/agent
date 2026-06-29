@@ -1,0 +1,11 @@
+codex:
+  command: codex
+  args: [exec]
+  timeout_seconds: 300
+  result_contract: required
+
+claude:
+  command: claude
+  args: ["-p"]
+  timeout_seconds: 300
+  result_contract: required

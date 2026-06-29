@@ -25,8 +25,7 @@
 | API | `apps/api/` | FastAPI 服务入口 |
 | 业务 workflow | `apps/workflows/` | 内容交付流程和状态机 |
 | 调度 | `apps/scheduler/` | 本地定时任务 |
-| runtime gateway | `apps/runtime/` | agent 工作台对 `~/agents/runtime` 的薄适配 |
-| 共享 runtime | `~/agents/runtime` | 通用 provider、session、task、result-file 契约 |
+| AgentRun runtime | `apps/agentrun/` | 通用 provider、session、task、result-file 契约和工作台适配 |
 | skills | `skills/` | 可执行规程和本地脚本 |
 | rules | `rules/` | 路由、安全和写入门禁 |
 | config | `config/` | 示例配置和本地配置模板 |
@@ -39,14 +38,14 @@ apps/
 ├── web/          # React + TypeScript Web UI
 ├── workflows/    # 业务 workflow
 ├── scheduler/    # APScheduler 本地任务
-└── runtime/      # AgentRun gateway，调用 ~/agents/runtime
+└── agentrun/     # AgentRun runtime 和工作台适配
 ```
 
 新增功能必须放入当前应用目录或对应的 skill/runtime owner。
 
 ## Runtime 路径
 
-API 通过 `apps/runtime/` 调用 `~/agents/runtime`。前端调用 provider-neutral API：
+API 通过 `apps/agentrun/` 执行本地 AgentRun。前端调用 provider-neutral API：
 
 ```text
 GET    /api/runtime/runs
@@ -57,7 +56,7 @@ POST   /api/runtime/runs/{run_id}/send
 POST   /api/runtime/runs/{run_id}/stop
 ```
 
-交互式 provider 使用 shared runtime session；一次性任务使用 task result-file 契约。真实外部模型或远端写入必须经过本地配置和用户确认门禁。
+交互式 provider 使用 AgentRun session；一次性任务使用 task result-file 契约。真实外部模型或远端写入必须经过本地配置和用户确认门禁。
 
 ## 内容与知识库
 
@@ -94,9 +93,8 @@ bash scripts/validate.sh --e2e
 Runtime 单独验证：
 
 ```bash
-cd ~/agents/runtime
-PYTHONPATH=src python3 -m agentrun.cli.main doctor --json
-PYTHONPATH=src python3 -m agentrun.cli.main profiles --json
+PYTHONPATH=apps/agentrun python3 -m agentrun.cli.main --runs-dir runs/agentrun doctor --json
+PYTHONPATH=apps/agentrun python3 -m agentrun.cli.main --runs-dir runs/agentrun profiles --json
 ```
 
 Web 验证：

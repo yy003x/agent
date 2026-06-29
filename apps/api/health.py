@@ -14,9 +14,9 @@ import subprocess
 import sys
 from pathlib import Path
 
-from apps.runtime import MainRuntime
-from apps.runtime import model_backends
-from apps.runtime.shared_runtime import shared_runtime_available
+from apps.agentrun import MainRuntime
+from apps.agentrun import model_backends
+from apps.agentrun.adapter import agentrun_available
 
 ROOT = Path(__file__).resolve().parents[2]
 MAIN_RUNTIME = MainRuntime()
@@ -100,10 +100,10 @@ def collect_health() -> dict:
             "detail": json.dumps(runtime_cfg["provider_profiles"], ensure_ascii=False),
         },
         {
-            "id": "shared-runtime",
-            "label": "Shared Runtime",
-            "status": "ok" if shared_runtime_available() else "missing",
-            "detail": str(runtime_cfg["shared_runtime"].get("cli", "")),
+            "id": "agentrun-runtime",
+            "label": "AgentRun Runtime",
+            "status": "ok" if agentrun_available() else "missing",
+            "detail": str(runtime_cfg["agentrun"].get("cli", "")),
         },
         _command_check("ffmpeg", "ffmpeg", ["-version"]),
         _module_check("lancedb", "LanceDB", required=False),

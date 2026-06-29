@@ -1,0 +1,9 @@
+schema_version: 1
+required: [schema_version, run_id, run_type, project_id, state, provider, updated_at]
+properties:
+  state:
+    enum: [pending, running, result_pending, done, failed, blocked, cancelled]
+  failure_reason:
+    enum: [timeout, exited, result_missing, schema_invalid, interrupted, provider_error, null]
+  provider_status:
+    type: object

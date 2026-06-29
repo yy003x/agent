@@ -1184,7 +1184,7 @@ def _settings_summary(config: dict, health_payload: dict) -> dict:
     checks = {item.get("id"): item for item in health_payload.get("checks", [])}
     codex = checks.get("codex", {})
     claude = checks.get("claude", {})
-    shared = checks.get("shared-runtime", {})
+    agentrun = checks.get("agentrun-runtime", {})
     return {
         "chat_provider": config.get("chat_provider"),
         "runtime_provider": config.get("runtime_provider"),
@@ -1195,7 +1195,7 @@ def _settings_summary(config: dict, health_payload: dict) -> dict:
         "checks": {
             "codex": codex.get("status", "missing"),
             "claude": claude.get("status", "missing"),
-            "shared_runtime": shared.get("status", "missing"),
+            "agentrun_runtime": agentrun.get("status", "missing"),
         },
     }
 

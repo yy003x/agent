@@ -1,0 +1,27 @@
+defaults:
+  session_name: agentrun
+  prompt_delivery: paste
+  tmux_input_mode: raw
+  paste_bracketed: true
+  poll_interval_seconds: 0.3
+  ready_timeout_seconds: 300
+  prompt_idle_timeout_seconds: 300
+  prompt_ready_settle_seconds: 2
+  prompt_ready_settle_fast_seconds: 0.5
+  prompt_stable_timeout_seconds: 10
+  silence_threshold_seconds: 0.6
+  output_rate_window_seconds: 5
+  tail_bytes: 1048576
+  auto_trust_cwd: []
+  timeout_seconds: 0
+  result_contract: optional
+
+codex:
+  command: codex
+  args: []
+  label: Tmux Codex Session
+
+claude:
+  command: claude
+  args: []
+  label: Tmux Claude Session

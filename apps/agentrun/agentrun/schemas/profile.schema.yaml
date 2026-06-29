@@ -1,0 +1,9 @@
+schema_version: 1
+required: [id, transport]
+properties:
+  id:
+    type: string
+  transport:
+    enum: [api, cli, tmux]
+  result_contract:
+    enum: [none, optional, required]

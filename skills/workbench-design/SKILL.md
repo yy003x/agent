@@ -26,7 +26,7 @@ metadata:
 
 ### 步骤 2：回读现状
 
-根据任务读取真实文件：`AGENTS.md`、`rules/`、`design/`、`apps/api/`、`apps/web/`、`apps/runtime/`、`skills/`、`scripts/`、`workspace/kb/` 或用户指定材料。涉及项目事实时使用 `knowledge-search`；外部可变事实不足时使用 `workbench-research`。
+根据任务读取真实文件：`AGENTS.md`、`rules/`、`design/`、`apps/api/`、`apps/web/`、`apps/agentrun/`、`skills/`、`scripts/`、`workspace/kb/` 或用户指定材料。涉及项目事实时使用 `knowledge-search`；外部可变事实不足时使用 `workbench-research`。
 
 ### 步骤 3：给出方案对比
 

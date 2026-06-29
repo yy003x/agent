@@ -31,12 +31,12 @@ esac
 
 PASS=0
 FAIL=0
-SHARED_RUNTIME_ROOT="${AGENT_SHARED_RUNTIME_ROOT:-$(cd "$ROOT_DIR/.." && pwd)/runtime}"
-SHARED_RUNTIME_RUNS_DIR="${AGENT_SHARED_RUNTIME_RUNS_DIR:-$ROOT_DIR/runs/agentrun}"
+AGENTRUN_APP_ROOT="$ROOT_DIR/apps/agentrun"
+AGENTRUN_RUNS_DIR="$ROOT_DIR/runs/agentrun"
 
 run_agentrun() {
-  PYTHONPATH="$SHARED_RUNTIME_ROOT/src${PYTHONPATH:+:$PYTHONPATH}" \
-    python3 -m agentrun.cli.main --runs-dir "$SHARED_RUNTIME_RUNS_DIR" "$@"
+  PYTHONPATH="$AGENTRUN_APP_ROOT${PYTHONPATH:+:$PYTHONPATH}" \
+    python3 -m agentrun.cli.main --runs-dir "$AGENTRUN_RUNS_DIR" "$@"
 }
 
 check() {
@@ -87,7 +87,7 @@ check "scripts/workbench_service.py 存在" "test -f scripts/workbench_service.p
 check "scripts/model_backend_smoke.py 存在" "test -f scripts/model_backend_smoke.py"
 check "scripts/workbench_smoke.py 存在" "test -f scripts/workbench_smoke.py"
 check "apps/scheduler/jobs.json 存在" "test -f apps/scheduler/jobs.json"
-check "无旧版本/历史包袱残留" "command -v rg && ! rg -n 'apps/workbench|apps/agent|legacy-tmux|replace-legacy-tmux|/api/runtime/tmux|legacy|兼容|旧版|旧实现|旧启动|旧命令|历史|旧|迁移|P6|migration|fallback|allowed_providers' Makefile scripts apps skills design rules requirements.txt AGENTS.md memory --glob '!scripts/validate.sh' --glob '!apps/web/package-lock.json' --glob '!apps/web/node_modules/**' --glob '!apps/web/dist/**'"
+check "无旧版本/历史包袱残留" "command -v rg && ! rg -n 'apps/workbench|apps/agent(/|$)|legacy-tmux|replace-legacy-tmux|/api/runtime/tmux|legacy|兼容|旧版|旧实现|旧启动|旧命令|历史|旧|迁移|P6|migration|fallback|allowed_providers' Makefile scripts apps skills design rules requirements.txt AGENTS.md memory --glob '!scripts/validate.sh' --glob '!apps/web/package-lock.json' --glob '!apps/web/node_modules/**' --glob '!apps/web/dist/**'"
 
 echo ""
 echo "[脚本语法]"
@@ -101,8 +101,9 @@ check "content_runtime.py 语法正常" "python3 -m py_compile skills/content-ge
 check "agent skill 脚手架语法正常" "python3 -m py_compile skills/agent-skill-create/scripts/scaffold_skill.py"
 check "scheduler.py 语法正常" "python3 -m py_compile apps/scheduler/scheduler.py"
 check "workflow 编排层语法正常" "python3 -m py_compile apps/workflows/*.py"
-check "runtime gateway 包语法正常" "python3 -m py_compile apps/runtime/*.py"
-check "shared runtime 包语法正常" "cd \"$SHARED_RUNTIME_ROOT\" && PYTHONPATH=src python3 -m compileall -q src tests"
+check "agentrun gateway 包语法正常" "python3 -m py_compile apps/agentrun/*.py"
+check "agentrun 附带脚本语法正常" "python3 -m py_compile apps/agentrun/scripts/*.py"
+check "agentrun 本地包语法正常" "PYTHONPATH=\"$AGENTRUN_APP_ROOT\" python3 -m compileall -q apps/agentrun/agentrun apps/agentrun/tests"
 check "FastAPI 工作台语法正常" "python3 -m py_compile apps/api/*.py apps/api/services/*.py"
 check "Web 工作台配置存在" "test -f apps/web/package.json && test -f apps/web/src/App.tsx"
 if [ -d apps/web/node_modules ]; then
@@ -148,9 +149,9 @@ check "model_backend_smoke.py --help 可执行" "python3 scripts/model_backend_s
 check "model_backend_smoke.py --list 可执行" "python3 scripts/model_backend_smoke.py --list"
 
 echo ""
-echo "[shared-runtime]"
-check "agentrun 源码存在" "test -d \"$SHARED_RUNTIME_ROOT/src/agentrun\""
-check "agentrun 单测通过" "cd \"$SHARED_RUNTIME_ROOT\" && PYTHONPATH=src python3 -m unittest discover -s tests -v"
+echo "[agentrun]"
+check "agentrun 源码存在" "test -d \"$AGENTRUN_APP_ROOT/agentrun\""
+check "agentrun 单测通过" "PYTHONPATH=\"$AGENTRUN_APP_ROOT\" python3 -m unittest discover -s apps/agentrun/tests -v"
 check "agentrun doctor 可执行" "run_agentrun --json doctor"
 check "agentrun profiles 可读取" "run_agentrun --json profiles"
 check "agentrun cli 配置可验证" "run_agentrun config validate --project agent --provider cli --profile codex-cli --json"

@@ -29,7 +29,7 @@ from apps.api.schemas import (
 )
 from apps.api.services import workbench
 from apps.workflows import content_delivery
-from apps.runtime import model_backends
+from apps.agentrun import model_backends
 
 ROOT = Path(__file__).resolve().parents[2]
 WEB_DIST = ROOT / "apps" / "web" / "dist"

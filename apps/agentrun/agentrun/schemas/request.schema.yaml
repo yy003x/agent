@@ -1,0 +1,13 @@
+schema_version: 1
+required: [contract_version, runtime_version, project_id, run_type, run_id, provider_profile, provider]
+properties:
+  run_type:
+    enum: [session, turn, task]
+  project_id:
+    type: string
+  run_id:
+    type: string
+  provider_profile:
+    type: string
+  provider:
+    type: string

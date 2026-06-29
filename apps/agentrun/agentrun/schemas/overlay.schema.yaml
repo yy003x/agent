@@ -1,0 +1,5 @@
+schema_version: 1
+required: [project_id]
+properties:
+  project_id:
+    type: string

@@ -8,7 +8,7 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-from apps.runtime import MainRuntime
+from apps.agentrun import MainRuntime
 
 ROOT = Path(__file__).resolve().parents[3]
 SESSIONS_DIR = ROOT / "runs" / "workbench" / "sessions"

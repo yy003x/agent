@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Runtime gateway backed by the shared AgentRun runtime."""
+"""Runtime gateway backed by the in-repo AgentRun package."""
 from __future__ import annotations
 
 import os
@@ -9,11 +9,11 @@ import time
 import uuid
 from pathlib import Path
 
-from .shared_runtime import SharedRuntimeAdapter, SharedRuntimeRunSpec, shared_runtime_available
+from .adapter import LOCAL_RUNTIME_ROOT, AgentRunAdapter, AgentRunSpec, agentrun_available
 from .state import RuntimeErrorState
 
 ROOT = Path(__file__).resolve().parents[2]
-RUNS_DIR = ROOT / "runs" / "shared-runtime"
+RUNS_DIR = ROOT / "runs" / "agentrun"
 DEFAULT_RUNTIME = os.environ.get("AGENT_WORKBENCH_DEFAULT_RUNTIME", "tmux")
 TASK_RUNTIMES = {"cli", "api", "tmux"}
 DIRECT_CHAT_RUNTIMES = {"cli", "api"}
@@ -30,6 +30,9 @@ CODEX_NO_ALT_SCREEN = os.environ.get("AGENT_WORKBENCH_CODEX_NO_ALT_SCREEN", "1")
 CLAUDE_EXTRA_ARGS = os.environ.get("AGENT_WORKBENCH_CLAUDE_ARGS", "")
 CLAUDE_PERMISSION_MODE = os.environ.get("AGENT_WORKBENCH_CLAUDE_PERMISSION_MODE", "dontAsk")
 CLAUDE_SKIP_PERMISSIONS = os.environ.get("AGENT_WORKBENCH_CLAUDE_SKIP_PERMISSIONS", "").lower() in {"1", "true", "yes", "on"}
+PROVIDER_TASK_KINDS = {"agentrun"}
+PROVIDER_SESSION_KINDS = {"agentrun_session"}
+PROVIDER_KINDS = PROVIDER_TASK_KINDS | PROVIDER_SESSION_KINDS
 
 
 def _now() -> str:
@@ -82,12 +85,12 @@ def effective_runtime_config(options: dict | None = None) -> dict:
         "extra_args": claude_extra_args,
         "extra_args_set": bool(claude_extra_args.strip()),
     }
-    shared = {
+    agentrun = {
         "enabled": True,
-        "available": shared_runtime_available(),
+        "available": agentrun_available(),
         "runs_dir": str(RUNS_DIR),
-        "root": os.environ.get("AGENT_SHARED_RUNTIME_ROOT", str(ROOT.parent / "runtime")),
-        "cli": os.environ.get("AGENT_SHARED_RUNTIME_CLI", "python -m agentrun.cli.main"),
+        "root": str(LOCAL_RUNTIME_ROOT),
+        "cli": "python -m agentrun.cli.main",
     }
     return {
         "codex": codex,
@@ -97,19 +100,19 @@ def effective_runtime_config(options: dict | None = None) -> dict:
             "api": {"transport": "api", "profile": api_profile},
             "tmux": {"transport": "tmux", "profile": tmux_profile},
         },
-        "tmux_submit": {"owner": "shared-runtime", "profile": tmux_profile, "result_contract": "result.json"},
+        "tmux_submit": {"owner": "agentrun", "profile": tmux_profile, "result_contract": "result.json"},
         "process": {"enabled": True, "owner": "agentrun task provider"},
         "api": {"enabled": True, "profile": api_profile},
-        "shared_runtime": shared,
+        "agentrun": agentrun,
     }
 
 
 def runtime_choices(*, only_valid: bool = True) -> dict:
-    return SharedRuntimeAdapter(RUNS_DIR).config_choices(only_valid=only_valid)
+    return AgentRunAdapter(RUNS_DIR).config_choices(only_valid=only_valid)
 
 
 def validate_config(provider_type: str | None = None, name: str | None = None, profile_id: str | None = None) -> dict:
-    return SharedRuntimeAdapter(RUNS_DIR).validate_config(
+    return AgentRunAdapter(RUNS_DIR).validate_config(
         provider_type=provider_type,
         name=name,
         profile_id=profile_id,
@@ -128,9 +131,9 @@ def run_chat_turn(
 ) -> dict:
     if runtime not in DIRECT_CHAT_RUNTIMES:
         raise RuntimeErrorState(f"direct turn only supports task runtime: {runtime}")
-    runtime_dir = work_dir / "shared"
-    return SharedRuntimeAdapter(runtime_dir).run(
-        SharedRuntimeRunSpec(
+    runtime_dir = work_dir / "agentrun"
+    return AgentRunAdapter(runtime_dir).run(
+        AgentRunSpec(
             runtime=runtime,
             prompt_text=_task_prompt(_prompt_text(prompt_path)),
             cwd=ROOT,
@@ -153,9 +156,9 @@ def start_chat_pane(
     runtime_options: dict | None = None,
 ) -> dict:
     if runtime not in INTERACTIVE_RUNTIMES:
-        raise RuntimeErrorState(f"unsupported shared session runtime: {runtime}")
-    runtime_dir = work_dir / "shared"
-    return SharedRuntimeAdapter(runtime_dir).start_session(
+        raise RuntimeErrorState(f"unsupported AgentRun session runtime: {runtime}")
+    runtime_dir = work_dir / "agentrun"
+    return AgentRunAdapter(runtime_dir).start_session(
         runtime=runtime,
         prompt_text=_prompt_text(prompt_path),
         cwd=ROOT,
@@ -168,25 +171,25 @@ def start_chat_pane(
 
 
 def send_to_runtime(runtime_meta: dict, text: str, submit: bool = True) -> None:
-    if runtime_meta.get("provider_kind") != "shared_runtime_session":
-        raise RuntimeErrorState("runtime metadata is not a shared runtime session")
+    if runtime_meta.get("provider_kind") not in PROVIDER_SESSION_KINDS:
+        raise RuntimeErrorState("runtime metadata is not an AgentRun session")
     _adapter_for_meta(runtime_meta).send(runtime_meta["run_id"], text, submit=submit)
 
 
 def runtime_meta_status(runtime_meta: dict) -> dict:
-    if runtime_meta.get("provider_kind") not in {"shared_runtime", "shared_runtime_session"}:
+    if runtime_meta.get("provider_kind") not in PROVIDER_KINDS:
         return {"ok": False, "state": "unknown", "error": "unsupported runtime metadata"}
     return {"ok": True, **_adapter_for_meta(runtime_meta).status(runtime_meta["run_id"])}
 
 
 def runtime_meta_logs(runtime_meta: dict, max_bytes: int = 40_000) -> dict:
-    if runtime_meta.get("provider_kind") not in {"shared_runtime", "shared_runtime_session"}:
+    if runtime_meta.get("provider_kind") not in PROVIDER_KINDS:
         return {"ok": False, "text": "", "error": "unsupported runtime metadata"}
     return {"ok": True, **_adapter_for_meta(runtime_meta).logs(runtime_meta["run_id"], max_bytes=max_bytes)}
 
 
 def stop_runtime_meta(runtime_meta: dict) -> None:
-    if runtime_meta.get("provider_kind") in {"shared_runtime", "shared_runtime_session"}:
+    if runtime_meta.get("provider_kind") in PROVIDER_KINDS:
         _adapter_for_meta(runtime_meta).stop(runtime_meta["run_id"])
 
 
@@ -207,8 +210,8 @@ def start_run(
     RUNS_DIR.mkdir(parents=True, exist_ok=True)
     run_id = f"run-{uuid.uuid4().hex[:12]}"
     if runtime in TASK_RUNTIMES:
-        return SharedRuntimeAdapter(RUNS_DIR).run(
-            SharedRuntimeRunSpec(
+        return AgentRunAdapter(RUNS_DIR).run(
+            AgentRunSpec(
                 runtime=runtime,
                 prompt_text=_task_prompt(prompt),
                 cwd=ROOT,
@@ -242,7 +245,7 @@ def start_run(
 }}
 ```
 """
-    return SharedRuntimeAdapter(RUNS_DIR).start_session(
+    return AgentRunAdapter(RUNS_DIR).start_session(
         runtime=runtime,
         prompt_text=prompt_contract,
         cwd=ROOT,
@@ -256,24 +259,24 @@ def start_run(
 
 
 def status_run(run_id: str) -> dict:
-    return SharedRuntimeAdapter(RUNS_DIR).status(run_id)
+    return AgentRunAdapter(RUNS_DIR).status(run_id)
 
 
 def list_runs() -> list[dict]:
-    return SharedRuntimeAdapter(RUNS_DIR).list_local_runs()
+    return AgentRunAdapter(RUNS_DIR).list_local_runs()
 
 
 def logs(run_id: str, max_bytes: int = 120_000) -> dict:
-    return SharedRuntimeAdapter(RUNS_DIR).logs(run_id, max_bytes=max_bytes)
+    return AgentRunAdapter(RUNS_DIR).logs(run_id, max_bytes=max_bytes)
 
 
 def send(run_id: str, text: str) -> dict:
-    SharedRuntimeAdapter(RUNS_DIR).send(run_id, text)
+    AgentRunAdapter(RUNS_DIR).send(run_id, text)
     return status_run(run_id)
 
 
 def stop(run_id: str) -> dict:
-    return SharedRuntimeAdapter(RUNS_DIR).stop(run_id)
+    return AgentRunAdapter(RUNS_DIR).stop(run_id)
 
 
 def _prompt_text(prompt_path: Path) -> str:
@@ -316,8 +319,8 @@ def _profile_for_runtime(runtime: str, options: dict | None = None, *, purpose: 
     return profile or None
 
 
-def _adapter_for_meta(runtime_meta: dict) -> SharedRuntimeAdapter:
+def _adapter_for_meta(runtime_meta: dict) -> AgentRunAdapter:
     run_dir = Path(runtime_meta.get("run_dir", ""))
     if not run_dir:
         raise RuntimeErrorState("runtime metadata missing run_dir")
-    return SharedRuntimeAdapter(run_dir.parent)
+    return AgentRunAdapter(run_dir.parent)
