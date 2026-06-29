@@ -17,4 +17,4 @@ where = ["."]
 include = ["agentrun*"]
 
 [tool.setuptools.package-data]
-agentrun = ["conf/*.yaml", "conf/providers/*.yaml", "schemas/*.yaml"]
+agentrun = ["schemas/*.yaml"]

@@ -7,9 +7,16 @@
 3. `external_cli.py`、`main.py`：工作台 API/Web 到 AgentRun 的适配。
 4. `skill_registry.py`、`state.py`、`model_backends.py`：工作台专属运行能力。
 
+AgentRun 的可提交运行配置统一放在 `config/agentrun/`：
+
+- `config/agentrun/runtime.yaml`
+- `config/agentrun/providers/api.yaml`
+- `config/agentrun/providers/cli.yaml`
+- `config/agentrun/providers/tmux.yaml`
+
 运行命令示例：
 
 ```bash
-PYTHONPATH=apps/agentrun python3 -m agentrun.cli.main --runs-dir runs/agentrun doctor --json
-PYTHONPATH=apps/agentrun python3 -m agentrun.cli.main --runs-dir runs/agentrun profiles --json
+PYTHONPATH=apps/agentrun python3 -m agentrun.cli.main --conf-dir config/agentrun --runs-dir runs/agentrun doctor --json
+PYTHONPATH=apps/agentrun python3 -m agentrun.cli.main --conf-dir config/agentrun --runs-dir runs/agentrun profiles --json
 ```

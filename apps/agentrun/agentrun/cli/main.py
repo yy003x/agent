@@ -13,7 +13,7 @@ from agentrun.kernel import AgentRuntime
 def main(argv: list[str] | None = None) -> int:
     argv = _normalize_global_options(sys.argv[1:] if argv is None else list(argv))
     parser = argparse.ArgumentParser(prog="agentrun")
-    parser.add_argument("--conf-dir", default=None, help="调用方配置目录(覆盖内置默认)")
+    parser.add_argument("--conf-dir", default=None, help="调用方配置目录(覆盖项目默认)")
     parser.add_argument("--runs-dir", default=None, help="runs 目录")
     parser.add_argument("--json", action="store_true", help="JSON 输出")
     sub = parser.add_subparsers(dest="cmd", required=True)

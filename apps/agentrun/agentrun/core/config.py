@@ -1,13 +1,12 @@
-"""ConfigManager:内置默认 + 根目录配置覆盖 + fail-fast(见 design/06 A)。
+"""ConfigManager:项目配置 + 调用方覆盖 + fail-fast(见 design/06 A)。
 
-合并顺序:包内默认 conf ← AGENTRUN_CONF_DIR/当前目录 conf ← project overlay ← run 参数。
+合并顺序:config/agentrun ← AGENTRUN_CONF_DIR/当前目录 conf ← project overlay ← run 参数。
 本模块负责静态配置;env 注入在 provider 层执行。
 """
 from __future__ import annotations
 
 import os
 from dataclasses import dataclass, field
-from importlib import resources
 from pathlib import Path
 from typing import Any
 
@@ -45,26 +44,19 @@ class Profile:
 
 class ConfigManager:
     def __init__(self, conf_dir: str | Path | None = None, runs_dir: str | Path | None = None) -> None:
-        self._override_dir = _resolve_override_dir(conf_dir)
+        self._config_dirs = _resolve_config_dirs(conf_dir)
         self._runs_dir_override = Path(runs_dir).expanduser() if runs_dir else None
-
-    # ---- 内置默认 conf(随包分发) ----
-    def _builtin_conf(self) -> Path:
-        return Path(str(resources.files("agentrun") / "conf"))
 
     def _merge_yaml(self, name: str, project_id: str | None = None) -> dict[str, Any]:
         merged: dict[str, Any] = {}
-        builtin = self._builtin_conf() / name
-        if builtin.exists():
-            _deep_merge(merged, load_yaml(builtin) or {})
-        if self._override_dir:
-            override = self._override_dir / name
-            if override.exists():
-                _deep_merge(merged, load_yaml(override) or {})
+        for directory in self._config_dirs:
+            path = directory / name
+            if path.exists():
+                _deep_merge(merged, load_yaml(path) or {})
         if project_id:
-            overlay = self._project_overlay_path(project_id)
-            if overlay.exists():
-                _deep_merge(merged, load_yaml(overlay) or {})
+            for overlay in self._project_overlay_paths(project_id):
+                if overlay.exists():
+                    _deep_merge(merged, load_yaml(overlay) or {})
         return merged
 
     def runtime_config(self, project_id: str | None = None) -> RuntimeConfig:
@@ -84,19 +76,17 @@ class ConfigManager:
             raw = self._merge_provider_yaml(name)
             self._apply_fixed_provider_file(name, raw, out)
         if project_id:
-            overlay = self._project_overlay_path(project_id)
-            if overlay.exists():
+            for overlay in self._project_overlay_paths(project_id):
+                if not overlay.exists():
+                    continue
                 raw = self._load_profiles_file(overlay, out, optional_profiles=True)
                 self._apply_simplified_profiles(raw, out)
         if not out:
-            raise ConfigError("未加载到任何 profile(检查 conf/providers/api.yaml|cli.yaml|tmux.yaml)")
+            raise ConfigError("未加载到任何 profile(检查 config/agentrun/providers/api.yaml|cli.yaml|tmux.yaml)")
         return out
 
     def _provider_dirs(self) -> list[Path]:
-        dirs = [self._builtin_conf() / "providers"]
-        if self._override_dir:
-            dirs.append(self._override_dir / "providers")
-        return dirs
+        return [directory / "providers" for directory in self._config_dirs]
 
     def _merge_provider_yaml(self, name: str) -> dict[str, Any]:
         merged: dict[str, Any] = {}
@@ -106,10 +96,8 @@ class ConfigManager:
                 _deep_merge(merged, load_yaml(path) or {})
         return merged
 
-    def _project_overlay_path(self, project_id: str) -> Path:
-        if self._override_dir:
-            return self._override_dir / "projects" / f"{project_id}.runtime.yaml"
-        return Path.cwd() / "projects" / f"{project_id}.runtime.yaml"
+    def _project_overlay_paths(self, project_id: str) -> list[Path]:
+        return [directory / "projects" / f"{project_id}.runtime.yaml" for directory in self._config_dirs]
 
     def _load_profiles_file(self, path: Path, out: dict[str, Profile], *, optional_profiles: bool = False) -> dict[str, Any]:
         raw = load_yaml(path) or {}
@@ -242,16 +230,40 @@ class ConfigManager:
             out[pid] = _profile_from_raw(raw, base=base)
 
 
-def _resolve_override_dir(conf_dir: str | Path | None) -> Path | None:
+def _resolve_config_dirs(conf_dir: str | Path | None) -> list[Path]:
+    dirs: list[Path] = []
+    for directory in _project_config_candidates():
+        _append_dir(dirs, directory)
     if conf_dir:
-        return Path(conf_dir).expanduser()
+        _append_dir(dirs, Path(conf_dir).expanduser())
+        return dirs
     env_dir = os.environ.get("AGENTRUN_CONF_DIR")
     if env_dir:
-        return Path(env_dir).expanduser()
+        _append_dir(dirs, Path(env_dir).expanduser())
+        return dirs
     cwd_conf = Path.cwd() / "conf"
     if cwd_conf.is_dir():
-        return cwd_conf
-    return None
+        _append_dir(dirs, cwd_conf)
+    return dirs
+
+
+def _project_config_candidates() -> list[Path]:
+    starts = [Path.cwd(), Path(__file__).resolve()]
+    candidates: list[Path] = []
+    for start in starts:
+        path = start if start.is_dir() else start.parent
+        for parent in (path, *path.parents):
+            candidate = parent / "config" / "agentrun"
+            if candidate.is_dir():
+                candidates.append(candidate)
+                break
+    return candidates
+
+
+def _append_dir(dirs: list[Path], directory: Path) -> None:
+    resolved = directory.expanduser().resolve()
+    if resolved not in dirs:
+        dirs.append(resolved)
 
 
 def _deep_merge(dst: dict[str, Any], src: dict[str, Any]) -> dict[str, Any]:

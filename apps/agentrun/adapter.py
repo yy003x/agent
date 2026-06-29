@@ -22,6 +22,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 AGENTS_ROOT = PROJECT_ROOT.parent
 LOCAL_RUNTIME_ROOT = Path(__file__).resolve().parent
 LOCAL_AGENTRUN_PACKAGE = LOCAL_RUNTIME_ROOT / "agentrun"
+LOCAL_CONFIG_ROOT = PROJECT_ROOT / "config" / "agentrun"
 DEFAULT_AGENTRUN_RUNS_DIR = PROJECT_ROOT / "runs" / "agentrun"
 DEFAULT_AGENT_PYTHON = AGENTS_ROOT / ".venv" / "bin" / "python3"
 PROJECT_ID = "agent"
@@ -138,10 +139,12 @@ class AgentRunAdapter:
         cli_path: str | Path | None = None,
         runs_dir: str | Path | None = None,
         runtime_root: str | Path | None = None,
+        conf_dir: str | Path | None = None,
     ) -> None:
         self.runtime_dir = Path(runtime_dir).resolve()
         self.runtime_root = Path(runtime_root or LOCAL_RUNTIME_ROOT).expanduser().resolve()
         self.cli_path = Path(cli_path).expanduser() if cli_path else None
+        self.conf_dir = Path(conf_dir or LOCAL_CONFIG_ROOT).expanduser().resolve()
         self.runs_dir = Path(runs_dir or DEFAULT_AGENTRUN_RUNS_DIR).expanduser().resolve()
 
     def run(self, spec: AgentRunSpec) -> dict:
@@ -169,6 +172,7 @@ class AgentRunAdapter:
             "status_file": str(status_file),
             "agentrun_cli": self._command_label(),
             "agentrun_root": str(self.runtime_root),
+            "agentrun_conf_dir": str(self.conf_dir),
             "agentrun_runs_dir": str(self.runs_dir),
             "started_at": now(),
         }
@@ -289,6 +293,7 @@ class AgentRunAdapter:
             "agentrun_output_log": str(agentrun_run_dir / "output.log"),
             "agentrun_cli": self._command_label(),
             "agentrun_root": str(self.runtime_root),
+            "agentrun_conf_dir": str(self.conf_dir),
             "agentrun_runs_dir": str(self.runs_dir),
             "tmux_session": payload.get("session", "") if isinstance(payload, dict) else "",
             "pane_id": payload.get("pane_id", "") if isinstance(payload, dict) else "",
@@ -441,7 +446,7 @@ class AgentRunAdapter:
         if unavailable:
             return {"ok": False, "error": unavailable}, _failed_process(args, unavailable)
         proc = subprocess.run(
-            [*command, "--runs-dir", str(self.runs_dir), *args],
+            [*command, "--conf-dir", str(self.conf_dir), "--runs-dir", str(self.runs_dir), *args],
             cwd=cwd,
             text=True,
             capture_output=True,

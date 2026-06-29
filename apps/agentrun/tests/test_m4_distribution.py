@@ -1,4 +1,4 @@
-"""M4 分发:开箱自检 / conf 覆盖 / 内置 conf 随包 / 契约版本 fail-fast / SDK client / 打包。"""
+"""M4 分发:开箱自检 / conf 覆盖 / 项目配置 / 契约版本 fail-fast / SDK client / 打包。"""
 from __future__ import annotations
 
 import os
@@ -19,6 +19,7 @@ from agentrun.kernel import AgentRuntime
 from agentrun.sdk import AgentRunClient, local_transport
 
 _REPO = Path(__file__).resolve().parents[1]
+_PROJECT_ROOT = _REPO.parents[1]
 
 
 def _script(root: Path) -> Path:
@@ -216,9 +217,9 @@ class OpenBoxTest(unittest.TestCase):
             self.assertEqual(profiles["tmux-claude"].raw["tmux_session_name"], "project-session")
 
 
-class PackagedConfTest(unittest.TestCase):
-    def test_builtin_conf_shipped_as_resources(self) -> None:
-        conf = resources.files("agentrun") / "conf"
+class ProjectConfigTest(unittest.TestCase):
+    def test_project_config_lives_under_config_agentrun(self) -> None:
+        conf = _PROJECT_ROOT / "config" / "agentrun"
         self.assertTrue((conf / "runtime.yaml").is_file())
         for name in ("api", "cli", "tmux"):
             self.assertTrue((conf / "providers" / f"{name}.yaml").is_file())
@@ -291,9 +292,6 @@ class WheelBuildTest(unittest.TestCase):
             self.assertTrue(wheels, "未产出 wheel")
             with zipfile.ZipFile(wheels[0]) as zf:
                 names = zf.namelist()
-            self.assertTrue(any(n.endswith("conf/providers/api.yaml") for n in names), "wheel 未包含内置 api conf")
-            self.assertTrue(any(n.endswith("conf/providers/cli.yaml") for n in names), "wheel 未包含内置 cli conf")
-            self.assertTrue(any(n.endswith("conf/providers/tmux.yaml") for n in names), "wheel 未包含内置 tmux conf")
             self.assertTrue(any(n.endswith("schemas/result.schema.yaml") for n in names), "wheel 未包含内置 schemas")
 
 

@@ -9,7 +9,7 @@ import time
 import uuid
 from pathlib import Path
 
-from .adapter import LOCAL_RUNTIME_ROOT, AgentRunAdapter, AgentRunSpec, agentrun_available
+from .adapter import LOCAL_CONFIG_ROOT, LOCAL_RUNTIME_ROOT, AgentRunAdapter, AgentRunSpec, agentrun_available
 from .state import RuntimeErrorState
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -88,6 +88,7 @@ def effective_runtime_config(options: dict | None = None) -> dict:
     agentrun = {
         "enabled": True,
         "available": agentrun_available(),
+        "conf_dir": str(LOCAL_CONFIG_ROOT),
         "runs_dir": str(RUNS_DIR),
         "root": str(LOCAL_RUNTIME_ROOT),
         "cli": "python -m agentrun.cli.main",

@@ -93,8 +93,8 @@ bash scripts/validate.sh --e2e
 Runtime 单独验证：
 
 ```bash
-PYTHONPATH=apps/agentrun python3 -m agentrun.cli.main --runs-dir runs/agentrun doctor --json
-PYTHONPATH=apps/agentrun python3 -m agentrun.cli.main --runs-dir runs/agentrun profiles --json
+PYTHONPATH=apps/agentrun python3 -m agentrun.cli.main --conf-dir config/agentrun --runs-dir runs/agentrun doctor --json
+PYTHONPATH=apps/agentrun python3 -m agentrun.cli.main --conf-dir config/agentrun --runs-dir runs/agentrun profiles --json
 ```
 
 Web 验证：

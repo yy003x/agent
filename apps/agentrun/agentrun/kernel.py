@@ -11,8 +11,8 @@ from agentrun.service import RuntimeService
 class AgentRuntime:
     """进程内库入口。
 
-    AgentRuntime() 用包内默认 conf 开箱即用;
-    AgentRuntime(conf_dir=...) 用调用方配置覆盖(见 design/06 A.2)。
+    AgentRuntime() 默认读取项目级 config/agentrun;
+    AgentRuntime(conf_dir=...) 用调用方配置覆盖。
     """
 
     def __init__(self, conf_dir: str | Path | None = None, runs_dir: str | Path | None = None) -> None:

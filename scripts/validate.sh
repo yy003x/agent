@@ -32,11 +32,12 @@ esac
 PASS=0
 FAIL=0
 AGENTRUN_APP_ROOT="$ROOT_DIR/apps/agentrun"
+AGENTRUN_CONF_DIR="$ROOT_DIR/config/agentrun"
 AGENTRUN_RUNS_DIR="$ROOT_DIR/runs/agentrun"
 
 run_agentrun() {
   PYTHONPATH="$AGENTRUN_APP_ROOT${PYTHONPATH:+:$PYTHONPATH}" \
-    python3 -m agentrun.cli.main --runs-dir "$AGENTRUN_RUNS_DIR" "$@"
+    python3 -m agentrun.cli.main --conf-dir "$AGENTRUN_CONF_DIR" --runs-dir "$AGENTRUN_RUNS_DIR" "$@"
 }
 
 check() {
@@ -120,6 +121,8 @@ check "config/state-sync.example.json 可解析" "python3 -c 'import json; json.
 check "model_tests.example.json 可解析" "python3 -c 'import json; json.load(open(\"model_tests.example.json\"))'"
 check ".claude/settings.json 可解析" "python3 -c 'import json; json.load(open(\".claude/settings.json\"))'"
 check "claude settings example 可解析" "python3 -c 'import json; json.load(open(\"config/claude-settings.example.json\"))'"
+check "agentrun runtime.yaml 存在" "test -f config/agentrun/runtime.yaml"
+check "agentrun provider 配置存在" "test -f config/agentrun/providers/api.yaml && test -f config/agentrun/providers/cli.yaml && test -f config/agentrun/providers/tmux.yaml"
 
 echo ""
 echo "[工作目录]"
