@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Runtime facade backed by the shared agent runtime."""
+"""Runtime gateway backed by the shared AgentRun runtime."""
 from __future__ import annotations
 
 import os
@@ -12,11 +12,14 @@ from pathlib import Path
 from .shared_runtime import SharedRuntimeAdapter, SharedRuntimeRunSpec, shared_runtime_available
 from .state import RuntimeErrorState
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 RUNS_DIR = ROOT / "runs" / "shared-runtime"
-DEFAULT_RUNTIME = os.environ.get("AGENT_WORKBENCH_DEFAULT_RUNTIME", "codex_cli")
-INTERACTIVE_RUNTIMES = {"codex_cli", "claude_cli"}
-SUPPORTED_RUNTIMES = INTERACTIVE_RUNTIMES | {"fake"}
+DEFAULT_RUNTIME = os.environ.get("AGENT_WORKBENCH_DEFAULT_RUNTIME", "tmux")
+TASK_RUNTIMES = {"fake", "code_cli", "llm_api", "tmux"}
+DIRECT_CHAT_RUNTIMES = {"fake", "code_cli", "llm_api"}
+INTERACTIVE_RUNTIMES = {"tmux"}
+SUPPORTED_RUNTIMES = TASK_RUNTIMES | INTERACTIVE_RUNTIMES
+CODE_CLI_PROFILE = os.environ.get("AGENT_WORKBENCH_CODE_CLI_PROFILE", "codex-cli")
 CODEX_SANDBOX = os.environ.get("AGENT_WORKBENCH_CODEX_SANDBOX", "workspace-write")
 CODEX_APPROVAL = os.environ.get("AGENT_WORKBENCH_CODEX_APPROVAL", "never")
 CODEX_EXTRA_ARGS = os.environ.get("AGENT_WORKBENCH_CODEX_ARGS", "")
@@ -47,7 +50,7 @@ def _str_option(options: dict | None, key: str, default: str) -> str:
 
 
 def default_runtime() -> str:
-    return DEFAULT_RUNTIME if DEFAULT_RUNTIME in INTERACTIVE_RUNTIMES else "codex_cli"
+    return DEFAULT_RUNTIME if DEFAULT_RUNTIME in SUPPORTED_RUNTIMES else "tmux"
 
 
 def effective_runtime_config(options: dict | None = None) -> dict:
@@ -56,6 +59,7 @@ def effective_runtime_config(options: dict | None = None) -> dict:
     codex_sandbox = _str_option(options, "codex_sandbox", CODEX_SANDBOX)
     codex_approval = _str_option(options, "codex_approval", CODEX_APPROVAL)
     codex_extra_args = _str_option(options, "codex_extra_args", CODEX_EXTRA_ARGS)
+    code_cli_profile = _profile_option(options)
     claude_permission_mode = _str_option(options, "claude_permission_mode", CLAUDE_PERMISSION_MODE)
     claude_skip_permissions = _bool_option(options, "claude_skip_permissions", CLAUDE_SKIP_PERMISSIONS)
     claude_extra_args = _str_option(options, "claude_extra_args", CLAUDE_EXTRA_ARGS)
@@ -78,14 +82,20 @@ def effective_runtime_config(options: dict | None = None) -> dict:
         "enabled": True,
         "available": shared_runtime_available(),
         "runs_dir": str(RUNS_DIR),
-        "cli": os.environ.get("AGENT_SHARED_RUNTIME_CLI", "/Users/yang/agents/runtime/scripts/agent-runtime"),
+        "root": os.environ.get("AGENT_SHARED_RUNTIME_ROOT", str(ROOT.parent / "runtime")),
+        "cli": os.environ.get("AGENT_SHARED_RUNTIME_CLI", "python -m agentrun.cli.main"),
     }
     return {
         "codex": codex,
         "claude": claude,
-        "tmux_submit": {"owner": "shared-runtime", "result_contract": "result.json"},
-        "process": {"enabled": False, "reason": "noninteractive providers hidden during shared runtime migration"},
-        "llm_api": {"enabled": False, "reason": "real LLM API is not part of P6 validation"},
+        "provider_profiles": {
+            "code_cli": {"transport": "code_cli", "profile": code_cli_profile},
+            "llm_api": {"transport": "llm_api", "profile": "llm-api"},
+            "tmux": {"transport": "tmux", "profile": "tmux-codex"},
+        },
+        "tmux_submit": {"owner": "shared-runtime", "profile": "tmux-codex", "result_contract": "result.json"},
+        "process": {"enabled": True, "owner": "agentrun task provider"},
+        "llm_api": {"enabled": True, "profile": "llm-api", "mock_default": True},
         "shared_runtime": shared,
     }
 
@@ -100,18 +110,19 @@ def run_chat_turn(
     timeout_seconds: int = 300,
     runtime_options: dict | None = None,
 ) -> dict:
-    if runtime != "fake":
-        raise RuntimeErrorState(f"direct turn only supports fake runtime during shared migration: {runtime}")
+    if runtime not in DIRECT_CHAT_RUNTIMES:
+        raise RuntimeErrorState(f"direct turn only supports task runtime: {runtime}")
     runtime_dir = work_dir / "shared"
     return SharedRuntimeAdapter(runtime_dir).run(
         SharedRuntimeRunSpec(
-            runtime="fake",
-            prompt_text=_prompt_text(prompt_path),
+            runtime=runtime,
+            prompt_text=_task_prompt(_prompt_text(prompt_path)),
             cwd=ROOT,
             runtime_dir=runtime_dir,
             result_file_name=str(result_path),
             run_id=session_id,
             timeout_seconds=timeout_seconds,
+            provider_profile=_profile_for_runtime(runtime, runtime_options),
         )
     )
 
@@ -125,7 +136,7 @@ def start_chat_pane(
     command: str | None = None,
     runtime_options: dict | None = None,
 ) -> dict:
-    if runtime not in INTERACTIVE_RUNTIMES and runtime != "fake":
+    if runtime not in INTERACTIVE_RUNTIMES:
         raise RuntimeErrorState(f"unsupported shared session runtime: {runtime}")
     runtime_dir = work_dir / "shared"
     return SharedRuntimeAdapter(runtime_dir).start_session(
@@ -147,13 +158,13 @@ def send_to_runtime(runtime_meta: dict, text: str, submit: bool = True) -> None:
 
 def runtime_meta_status(runtime_meta: dict) -> dict:
     if runtime_meta.get("provider_kind") not in {"shared_runtime", "shared_runtime_session"}:
-        return {"ok": False, "state": "unknown", "error": "unsupported legacy runtime metadata"}
+        return {"ok": False, "state": "unknown", "error": "unsupported runtime metadata"}
     return {"ok": True, **_adapter_for_meta(runtime_meta).status(runtime_meta["run_id"])}
 
 
 def runtime_meta_logs(runtime_meta: dict, max_bytes: int = 40_000) -> dict:
     if runtime_meta.get("provider_kind") not in {"shared_runtime", "shared_runtime_session"}:
-        return {"ok": False, "text": "", "error": "unsupported legacy runtime metadata"}
+        return {"ok": False, "text": "", "error": "unsupported runtime metadata"}
     return {"ok": True, **_adapter_for_meta(runtime_meta).logs(runtime_meta["run_id"], max_bytes=max_bytes)}
 
 
@@ -178,16 +189,17 @@ def start_run(
 ) -> dict:
     RUNS_DIR.mkdir(parents=True, exist_ok=True)
     run_id = f"run-{uuid.uuid4().hex[:12]}"
-    if runtime == "fake":
+    if runtime in TASK_RUNTIMES:
         return SharedRuntimeAdapter(RUNS_DIR).run(
             SharedRuntimeRunSpec(
-                runtime="fake",
-                prompt_text=prompt,
+                runtime=runtime,
+                prompt_text=_task_prompt(prompt),
                 cwd=ROOT,
                 runtime_dir=RUNS_DIR,
                 result_file_name="result.json",
                 run_id=run_id,
                 timeout_seconds=timeout_seconds,
+                provider_profile=_profile_for_runtime(runtime, runtime_options),
             )
         )
     if runtime not in INTERACTIVE_RUNTIMES:
@@ -248,6 +260,45 @@ def stop(run_id: str) -> dict:
 
 def _prompt_text(prompt_path: Path) -> str:
     return prompt_path.read_text(encoding="utf-8", errors="ignore") if prompt_path.exists() else ""
+
+
+def _task_prompt(prompt: str) -> str:
+    return f"""{prompt.rstrip()}
+
+## AgentRun result 契约
+
+如果当前 provider 要求写文件，请把最终结果写入环境变量 `AGENTRUN_RESULT_FILE` 指向的 JSON 文件。
+格式如下：
+
+```json
+{{
+  "schema_version": 1,
+  "run_id": "从环境变量 AGENTRUN_RUN_ID 读取",
+  "outcome": "succeeded|failed|blocked|partial|cancelled",
+  "summary": "给用户看的中文回复或任务摘要",
+  "artifacts": [],
+  "errors": [],
+  "validation": {{"commands": [], "passed": true}}
+}}
+```
+"""
+
+
+def _profile_option(options: dict | None = None) -> str:
+    value = _str_option(options, "code_cli_profile", CODE_CLI_PROFILE).strip()
+    return value if value in {"codex-cli", "claude-cli"} else "codex-cli"
+
+
+def _profile_for_runtime(runtime: str, options: dict | None = None) -> str | None:
+    if runtime == "code_cli":
+        return _profile_option(options)
+    if runtime == "llm_api":
+        return "llm-api"
+    if runtime == "tmux":
+        return "tmux-codex"
+    if runtime == "fake":
+        return "fake"
+    return None
 
 
 def _adapter_for_meta(runtime_meta: dict) -> SharedRuntimeAdapter:

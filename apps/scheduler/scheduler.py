@@ -4,7 +4,7 @@
 启动：python apps/scheduler/scheduler.py
 配置：apps/scheduler/jobs.json（cron 格式：分 时 日 月 周）
 
-设计依据：01-framework.md §6。
+设计依据：design/README.md。
 - BackgroundScheduler 注册 job，command 用 subprocess 执行
 - 失败记录到 runs/scheduler/YYYY-MM-DD.log
 - 启动时打印所有 job 及下次执行时间

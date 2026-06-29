@@ -14,8 +14,8 @@
   workspace/daily/YYYY-MM-DD/session-<8位>.md
   （--handoff 时额外写 workspace/resume/YYYY-MM-DD-<8位>.md 未完成任务恢复点）
 
-设计依据：01-framework.md §5 / content-agent-architecture.md L3。
-本脚本不依赖第三方库，可被 Python runtime、Codex/tmux runtime 或兼容 Stop hook 直接调用。
+设计依据：design/README.md。
+本脚本不依赖第三方库，可被 Python runtime、Codex/tmux runtime 或 Stop hook 直接调用。
 """
 
 from __future__ import annotations

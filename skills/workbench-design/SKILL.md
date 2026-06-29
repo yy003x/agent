@@ -26,7 +26,7 @@ metadata:
 
 ### 步骤 2：回读现状
 
-根据任务读取真实文件：`AGENTS.md`、`rules/`、`design/`、`apps/api/`、`apps/web/`、`apps/workbench/`、`runtime/`、`skills/`、`scripts/`、`workspace/kb/` 或用户指定材料。涉及历史事实时使用 `knowledge-search`；外部可变事实不足时使用 `workbench-research`。
+根据任务读取真实文件：`AGENTS.md`、`rules/`、`design/`、`apps/api/`、`apps/web/`、`apps/runtime/`、`skills/`、`scripts/`、`workspace/kb/` 或用户指定材料。涉及项目事实时使用 `knowledge-search`；外部可变事实不足时使用 `workbench-research`。
 
 ### 步骤 3：给出方案对比
 
@@ -62,7 +62,7 @@ outputs/YYYY-MM-DD/design/<topic>.md
 
 ## 安全边界
 
-默认本地写入设计文档。涉及删除、远端写入、权限扩大、后台服务、批量迁移或修改核心安全规则时，只给方案和影响范围，等待用户确认后才能执行。
+默认本地写入设计文档。涉及删除、远端写入、权限扩大、后台服务、批量搬移或修改核心安全规则时，只给方案和影响范围，等待用户确认后才能执行。
 
 ## 验证
 

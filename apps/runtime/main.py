@@ -1,25 +1,21 @@
-"""Main runtime facade for the local workbench."""
+"""Runtime gateway for the local workbench.
+
+This package does not implement provider internals. It maps the API/Web
+contract onto the shared AgentRun runtime under ``~/agents/runtime``.
+"""
 from __future__ import annotations
 
 from pathlib import Path
 
 from . import external_cli
-from .executor import ExternalCliExecutor
-from .observer import FileResultObserver
-from .planner import Planner
 from .skill_registry import SkillRegistry
-from .task_store import TaskStore
 
 
 class MainRuntime:
-    """Coordinate planner, executor, observer, state, skills and task storage."""
+    """Small facade used by the API layer."""
 
-    def __init__(self, task_store_root: Path | None = None) -> None:
-        self.planner = Planner()
-        self.executor = ExternalCliExecutor()
-        self.observer = FileResultObserver()
+    def __init__(self) -> None:
         self.skill_registry = SkillRegistry(external_cli.ROOT / "skills", external_cli.ROOT)
-        self.task_store = TaskStore(task_store_root or external_cli.RUNS_DIR)
 
     def default_runtime(self) -> str:
         return external_cli.default_runtime()
@@ -28,7 +24,7 @@ class MainRuntime:
         return external_cli.effective_runtime_config(options)
 
     def is_worker_alive(self, pane_id: str) -> bool:
-        return self.executor.is_alive(pane_id)
+        return external_cli.is_pane_alive(pane_id)
 
     def start_chat_worker(
         self,
@@ -41,16 +37,15 @@ class MainRuntime:
         command: str | None = None,
         runtime_options: dict | None = None,
     ) -> dict:
-        task = self.planner.plan_external_cli_task(
-            task_id=session_id,
-            runtime=runtime,
-            prompt_path=prompt_path,
-            result_path=result_path,
-            work_dir=work_dir,
+        return external_cli.start_chat_pane(
+            session_id,
+            runtime,
+            prompt_path,
+            result_path,
+            work_dir,
             command=command,
             runtime_options=runtime_options,
         )
-        return self.executor.start_chat_worker(task)
 
     def run_chat_turn(
         self,
@@ -76,16 +71,16 @@ class MainRuntime:
         )
 
     def send_to_worker(self, runtime_meta: dict, text: str, submit: bool = True) -> None:
-        self.executor.send(runtime_meta, text, submit=submit)
+        external_cli.send_to_runtime(runtime_meta, text, submit=submit)
 
     def worker_status(self, runtime_meta: dict) -> dict:
-        return self.executor.status(runtime_meta)
+        return external_cli.runtime_meta_status(runtime_meta)
 
     def worker_logs(self, runtime_meta: dict, max_bytes: int = 40_000) -> dict:
-        return self.executor.logs(runtime_meta, max_bytes=max_bytes)
+        return external_cli.runtime_meta_logs(runtime_meta, max_bytes=max_bytes)
 
     def stop_worker(self, runtime_meta: dict) -> None:
-        self.executor.stop(runtime_meta)
+        external_cli.stop_runtime_meta(runtime_meta)
 
     def list_skills(self) -> list[dict]:
         return self.skill_registry.list()

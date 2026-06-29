@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import os
 import re
 import shutil
 import subprocess
@@ -11,157 +10,33 @@ import sys
 import threading
 import time
 import uuid
-from datetime import datetime, timezone
 from pathlib import Path
 
 from apps.api import file_browser
 from apps.api import health
-from runtime import MainRuntime
-from runtime import model_backends
-
-ROOT = Path(__file__).resolve().parents[3]
-SESSIONS_DIR = ROOT / "runs" / "workbench" / "sessions"
-CONFIG_PATH = ROOT / "runs" / "workbench" / "config.json"
-CONTENT_RUNTIME = ROOT / "skills" / "content-generate" / "scripts" / "content_runtime.py"
-MAIN_RUNTIME = MainRuntime()
-CHAT_WAIT_SECONDS = float(os.environ.get("AGENT_WORKBENCH_CHAT_WAIT_SECONDS", "120"))
-CHAT_RUNTIME = os.environ.get("AGENT_WORKBENCH_CHAT_RUNTIME", MAIN_RUNTIME.default_runtime())
-ALLOWED_RUNTIMES = {"codex_cli", "claude_cli", "fake"}
-USER_RUNTIMES = {"codex_cli", "claude_cli"}
-NONINTERACTIVE_RUNTIMES = {"fake"}
-
-
-def _now() -> str:
-    return time.strftime("%Y-%m-%dT%H:%M:%S%z")
-
-
-def _parse_ts(value: str | None) -> datetime | None:
-    if not value:
-        return None
-    for fmt in ("%Y-%m-%dT%H:%M:%S%z", "%Y-%m-%dT%H:%M:%S"):
-        try:
-            parsed = datetime.strptime(value, fmt)
-            return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
-        except ValueError:
-            continue
-    return None
-
-
-def _elapsed_seconds(value: str | None) -> int | None:
-    parsed = _parse_ts(value)
-    if not parsed:
-        return None
-    return max(0, int((datetime.now(parsed.tzinfo) - parsed).total_seconds()))
-
-
-def _write_json(path: Path, data: dict | list) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-
-
-def _read_json(path: Path, default):
-    if not path.exists():
-        return default
-    return json.loads(path.read_text(encoding="utf-8"))
-
-
-def _append_jsonl(path: Path, data: dict) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a", encoding="utf-8") as fh:
-        fh.write(json.dumps(data, ensure_ascii=False) + "\n")
-
-
-def _session_dir(session_id: str) -> Path:
-    if not re.fullmatch(r"chat-[a-z0-9]{12}", session_id):
-        raise ValueError("invalid session id")
-    return SESSIONS_DIR / session_id
-
-
-def _valid_runtime(value: str, default: str = "codex_cli") -> str:
-    return value if value in ALLOWED_RUNTIMES else default
-
-
-def _valid_user_runtime(value: str, default: str = "codex_cli") -> str:
-    return value if value in USER_RUNTIMES else default
-
-
-def _default_config() -> dict:
-    effective = MAIN_RUNTIME.effective_runtime_config()
-    return {
-        "chat_provider": _valid_user_runtime(CHAT_RUNTIME, MAIN_RUNTIME.default_runtime()),
-        "runtime_provider": _valid_user_runtime(MAIN_RUNTIME.default_runtime(), "codex_cli"),
-        "codex_command": "codex",
-        "claude_command": "claude",
-        "codex_no_alt_screen": effective["codex"]["no_alt_screen"],
-        "codex_sandbox": effective["codex"]["sandbox"],
-        "codex_approval": effective["codex"]["approval"],
-        "codex_bypass": effective["codex"]["approval"] == "bypass",
-        "codex_extra_args": effective["codex"].get("extra_args", ""),
-        "claude_permission_mode": effective["claude"]["permission_mode"],
-        "claude_skip_permissions": effective["claude"]["skip_permissions"],
-        "claude_extra_args": effective["claude"].get("extra_args", ""),
-    }
-
-
-def _sanitize_config(data: dict) -> dict:
-    defaults = _default_config()
-    config = {**defaults, **(data or {})}
-    config["chat_provider"] = _valid_user_runtime(str(config.get("chat_provider", defaults["chat_provider"])), defaults["chat_provider"])
-    config["runtime_provider"] = _valid_user_runtime(str(config.get("runtime_provider", defaults["runtime_provider"])), defaults["runtime_provider"])
-    config["codex_command"] = str(config.get("codex_command") or "codex").strip() or "codex"
-    config["claude_command"] = str(config.get("claude_command") or "claude").strip() or "claude"
-    config["codex_no_alt_screen"] = bool(config.get("codex_no_alt_screen"))
-    config["codex_bypass"] = bool(config.get("codex_bypass"))
-    config["codex_sandbox"] = str(config.get("codex_sandbox") or defaults["codex_sandbox"]).strip()
-    config["codex_approval"] = str(config.get("codex_approval") or defaults["codex_approval"]).strip()
-    config["codex_extra_args"] = str(config.get("codex_extra_args") or "")
-    config["claude_permission_mode"] = str(config.get("claude_permission_mode") or defaults["claude_permission_mode"]).strip()
-    config["claude_skip_permissions"] = bool(config.get("claude_skip_permissions"))
-    config["claude_extra_args"] = str(config.get("claude_extra_args") or "")
-    return config
-
-
-def workbench_config() -> dict:
-    return _sanitize_config(_read_json(CONFIG_PATH, {}))
-
-
-def save_workbench_config(data: dict) -> dict:
-    config = _sanitize_config(data)
-    _write_json(CONFIG_PATH, config)
-    return runtime_config_payload(config)
-
-
-def _runtime_options_from_config(config: dict) -> dict:
-    return {
-        "codex_no_alt_screen": config["codex_no_alt_screen"],
-        "codex_bypass": config["codex_bypass"],
-        "codex_sandbox": config["codex_sandbox"],
-        "codex_approval": config["codex_approval"],
-        "codex_extra_args": config["codex_extra_args"],
-        "claude_permission_mode": config["claude_permission_mode"],
-        "claude_skip_permissions": config["claude_skip_permissions"],
-        "claude_extra_args": config["claude_extra_args"],
-    }
-
-
-def _command_for_runtime(config: dict, runtime: str) -> str | None:
-    if runtime == "codex_cli":
-        return config["codex_command"]
-    if runtime == "claude_cli":
-        return config["claude_command"]
-    return None
-
-
-def runtime_config_payload(config: dict | None = None) -> dict:
-    config = config or workbench_config()
-    options = _runtime_options_from_config(config)
-    return {
-        "config": config,
-        "effective": MAIN_RUNTIME.effective_runtime_config(options),
-        "config_path": str(CONFIG_PATH),
-        "allowed_providers": sorted(USER_RUNTIMES),
-        "model_backends": model_backends.collect_model_backends(),
-    }
+from apps.api.services.workbench_config import (
+    _command_for_runtime,
+    _runtime_options_from_config,
+    runtime_config_payload,
+    save_workbench_config,
+    workbench_config,
+)
+from apps.api.services.workbench_support import (
+    CHAT_WAIT_SECONDS,
+    CONTENT_RUNTIME,
+    MAIN_RUNTIME,
+    NONINTERACTIVE_RUNTIMES,
+    ROOT,
+    SESSIONS_DIR,
+    append_jsonl as _append_jsonl,
+    elapsed_seconds as _elapsed_seconds,
+    now as _now,
+    read_json as _read_json,
+    session_dir as _session_dir,
+    valid_user_runtime as _valid_user_runtime,
+    valid_runtime as _valid_runtime,
+    write_json as _write_json,
+)
 
 
 def _load_messages(session_id: str) -> list[dict]:
@@ -276,7 +151,7 @@ def delete_session(session_id: str) -> dict:
         try:
             MAIN_RUNTIME.stop_worker(runtime_meta)
         except Exception as exc:  # noqa: BLE001
-            warnings.append(f"停止 tmux runtime 失败，已继续删除目录：{exc}")
+            warnings.append(f"停止 runtime 失败，已继续删除目录：{exc}")
 
     shutil.rmtree(resolved)
     return {
@@ -344,7 +219,7 @@ def stop_session_runtime(session_id: str) -> dict:
     for turn in pending:
         result = {
             "status": "failed",
-            "assistant_message": "已停止当前助手会话。本轮任务没有完成。",
+            "assistant_message": "已停止当前 runtime。本轮任务没有完成。",
             "summary": "runtime stopped by user",
             "outputs": [],
             "questions": [],
@@ -364,7 +239,7 @@ def stop_session_runtime(session_id: str) -> dict:
         "ts": _now(),
         "type": "runtime.stopped",
         "session_id": session_id,
-        "title": "助手会话已停止",
+        "title": "runtime 已停止",
         "status": "stopped",
         "data": {
             "runtime": runtime_meta.get("runtime"),
@@ -422,7 +297,7 @@ def _build_turn_prompt(session_id: str, turn_id: str, user_content: str,
     )
     return f"""# 图书运营工作台会话 turn
 
-你正在 `/Users/yang/agents/agent` 项目中，通过 tmux 里的真实 CLI 会话处理 GUI 聊天请求。
+你正在 `/Users/yang/agents/agent` 项目中，通过 AgentRun provider 处理 GUI 聊天请求。
 
 ## 固定约束
 
@@ -431,7 +306,7 @@ def _build_turn_prompt(session_id: str, turn_id: str, user_content: str,
 - 不泄露 token、secret、cookie、private key 或完整 JWT。
 - 需要写文件时只写项目允许目录，优先写 `outputs/`、`workspace/`、`runs/`。
 - 如果任务需要大量处理，直接在当前 CLI 会话中使用可用工具完成；不要只给抽象建议。
-- 完成本 turn 后必须写入 result JSON，UI 只以这个文件作为完成信号。
+- 完成本 turn 后必须写入 runtime 要求的 result JSON，UI 会把 runtime result 回填到本 turn。
 
 ## 会话信息
 
@@ -455,7 +330,7 @@ WORKBENCH_RAW_USER_MESSAGE
 
 ## 输出要求
 
-请把本 turn 的最终结果写入：
+如果当前执行环境没有提供 `AGENTRUN_RESULT_FILE`，请把本 turn 的最终结果写入：
 
 `{result_path}`
 
@@ -473,6 +348,7 @@ JSON 格式：
 ```
 
 `assistant_message` 应该是可以直接显示在 GUI 聊天里的回复。不要把敏感值写入结果。
+如果当前执行环境提供了 `AGENTRUN_RESULT_FILE`，请优先写入 AgentRun result 契约；API 会把 `summary` 映射回聊天框。
 """
 
 
@@ -589,7 +465,7 @@ def _sync_completed_turn_messages(session_id: str) -> list[dict]:
             "ts": _now(),
             "type": "runtime.result_repaired",
             "session_id": session_id,
-            "title": "tmux CLI turn 结果已修复回填",
+            "title": "runtime turn 结果已修复回填",
             "status": result.get("status", "success"),
             "data": {
                 "turn_id": turn_id,
@@ -631,7 +507,7 @@ def _sync_pending_turns(session_id: str) -> list[dict]:
             "ts": _now(),
             "type": "runtime.result_ready",
             "session_id": session_id,
-            "title": "tmux CLI turn 完成",
+            "title": "runtime turn 完成",
             "status": result.get("status", "success"),
             "data": {
                 "turn_id": turn["turn_id"],
@@ -804,7 +680,7 @@ def _deliver_chat_turn(session_id: str, turn: dict, startup_contract_path: Path,
                 "ts": _now(),
                 "type": "runtime.contract" if delivery_mode == "contract" else "runtime.send",
                 "session_id": session_id,
-                "title": "tmux CLI 会话已接管",
+                "title": "runtime provider 已接管",
                 "status": "running",
                 "data": {
                     "turn_id": turn["turn_id"],
@@ -826,7 +702,7 @@ def _deliver_chat_turn(session_id: str, turn: dict, startup_contract_path: Path,
     except Exception as exc:  # noqa: BLE001
         result = {
             "status": "failed",
-            "assistant_message": f"tmux runtime 投递失败：{exc}",
+            "assistant_message": f"runtime 投递失败：{exc}",
             "summary": "runtime delivery failed",
             "outputs": [],
             "questions": [],
@@ -846,7 +722,7 @@ def _deliver_chat_turn(session_id: str, turn: dict, startup_contract_path: Path,
                     "ts": _now(),
                     "type": "runtime.delivery_failed",
                     "session_id": session_id,
-                    "title": "tmux CLI 投递失败",
+                    "title": "runtime 投递失败",
                     "status": "failed",
                     "data": {"turn_id": turn["turn_id"], "error": str(exc)},
                 },
@@ -896,7 +772,7 @@ def add_message(session_id: str, content: str, wait_seconds: float = 0) -> dict:
     if not path.exists():
         raise FileNotFoundError("session not found")
     if _has_running_turn(session_id):
-        raise RuntimeError("上一轮 tmux CLI 会话仍在执行，请稍后刷新或在 Runtime 面板查看 pane 后再继续。")
+        raise RuntimeError("上一轮 runtime 仍在执行，请稍后刷新或在诊断面板查看状态后再继续。")
 
     user_msg = {"id": f"msg-{uuid.uuid4().hex[:10]}", "role": "user", "content": content, "ts": _now()}
     _append_jsonl(path / "messages.jsonl", user_msg)
@@ -935,7 +811,7 @@ def add_message(session_id: str, content: str, wait_seconds: float = 0) -> dict:
     assistant_msg = {
         "id": f"msg-{uuid.uuid4().hex[:10]}",
         "role": "assistant",
-        "content": "已写入工作台会话，正在后台交给 tmux CLI 处理。",
+        "content": "已提交给 runtime provider，正在后台执行。",
         "ts": _now(),
         "pending": True,
         "turn_id": turn_id,
@@ -961,7 +837,7 @@ def add_message(session_id: str, content: str, wait_seconds: float = 0) -> dict:
         "ts": _now(),
         "type": "runtime.queued",
         "session_id": session_id,
-        "title": "tmux CLI turn 已入队",
+        "title": "runtime turn 已入队",
         "status": "queued",
         "data": {
             "turn_id": turn_id,
@@ -1025,11 +901,15 @@ def kb_search(query: str, modality: str = "all", topk: int = 10) -> dict:
 
 
 def _provider_label(runtime: str | None) -> str:
-    if runtime == "claude_cli":
-        return "Claude"
+    if runtime == "code_cli":
+        return "Code CLI"
+    if runtime == "llm_api":
+        return "LLM API"
+    if runtime == "tmux":
+        return "Tmux"
     if runtime == "fake":
         return "测试 Runtime"
-    return "Codex"
+    return "Tmux"
 
 
 def _operator_status_label(status: str | None) -> str:
@@ -1225,7 +1105,7 @@ def _progress_for_session(state: dict, messages: list[dict], events: list[dict],
                           outputs: list[dict]) -> dict:
     last_user_text = _latest_user_text(messages)
     intent, default_step = _intent_label(last_user_text)
-    runtime = state.get("runtime") or runtime_status.get("runtime") or "codex_cli"
+    runtime = state.get("runtime") or runtime_status.get("runtime") or "tmux"
     provider = _provider_label(runtime)
     last_failed = _latest_event(events, status="failed")
     last_done = _latest_event(events, event_type="runtime.result_ready")
@@ -1305,18 +1185,18 @@ def _settings_summary(config: dict, health_payload: dict) -> dict:
     checks = {item.get("id"): item for item in health_payload.get("checks", [])}
     codex = checks.get("codex", {})
     claude = checks.get("claude", {})
-    tmux = checks.get("tmux", {})
+    shared = checks.get("shared-runtime", {})
     return {
         "chat_provider": config.get("chat_provider"),
         "runtime_provider": config.get("runtime_provider"),
         "chat_provider_label": _provider_label(config.get("chat_provider")),
         "runtime_provider_label": _provider_label(config.get("runtime_provider")),
-        "mode": "tmux 真实 CLI 会话",
+        "mode": "AgentRun provider task",
         "project_root": str(ROOT),
         "checks": {
             "codex": codex.get("status", "missing"),
             "claude": claude.get("status", "missing"),
-            "tmux": tmux.get("status", "missing"),
+            "shared_runtime": shared.get("status", "missing"),
         },
     }
 

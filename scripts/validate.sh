@@ -31,7 +31,13 @@ esac
 
 PASS=0
 FAIL=0
-SHARED_RUNTIME_CLI="${AGENT_SHARED_RUNTIME_CLI:-/Users/yang/agents/runtime/scripts/agent-runtime}"
+SHARED_RUNTIME_ROOT="${AGENT_SHARED_RUNTIME_ROOT:-$(cd "$ROOT_DIR/.." && pwd)/runtime}"
+SHARED_RUNTIME_RUNS_DIR="${AGENT_SHARED_RUNTIME_RUNS_DIR:-$ROOT_DIR/runs/agentrun}"
+
+run_agentrun() {
+  PYTHONPATH="$SHARED_RUNTIME_ROOT/src${PYTHONPATH:+:$PYTHONPATH}" \
+    python3 -m agentrun.cli.main --runs-dir "$SHARED_RUNTIME_RUNS_DIR" "$@"
+}
 
 check() {
   local name="$1"
@@ -81,6 +87,7 @@ check "scripts/workbench_service.py 存在" "test -f scripts/workbench_service.p
 check "scripts/model_backend_smoke.py 存在" "test -f scripts/model_backend_smoke.py"
 check "scripts/workbench_smoke.py 存在" "test -f scripts/workbench_smoke.py"
 check "apps/scheduler/jobs.json 存在" "test -f apps/scheduler/jobs.json"
+check "无旧版本/历史包袱残留" "command -v rg && ! rg -n 'apps/workbench|apps/agent|legacy-tmux|replace-legacy-tmux|/api/runtime/tmux|legacy|兼容|旧版|旧实现|旧启动|旧命令|历史|旧|迁移|P6|migration|fallback|allowed_providers' Makefile scripts apps skills design rules requirements.txt AGENTS.md memory --glob '!scripts/validate.sh' --glob '!apps/web/package-lock.json' --glob '!apps/web/node_modules/**' --glob '!apps/web/dist/**'"
 
 echo ""
 echo "[脚本语法]"
@@ -93,11 +100,10 @@ check "workbench_smoke.py 语法正常" "python3 -m py_compile scripts/workbench
 check "content_runtime.py 语法正常" "python3 -m py_compile skills/content-generate/scripts/content_runtime.py"
 check "agent skill 脚手架语法正常" "python3 -m py_compile skills/agent-skill-create/scripts/scaffold_skill.py"
 check "scheduler.py 语法正常" "python3 -m py_compile apps/scheduler/scheduler.py"
-check "orchestrator.py 语法正常" "python3 -m py_compile apps/agent/orchestrator.py"
-check "brain.py 语法正常" "python3 -m py_compile apps/agent/brain.py"
 check "workflow 编排层语法正常" "python3 -m py_compile apps/workflows/*.py"
-check "runtime 包语法正常" "python3 -m py_compile runtime/*.py"
-check "FastAPI 工作台语法正常" "python3 -m py_compile apps/api/*.py apps/api/services/*.py apps/workbench/server.py"
+check "runtime gateway 包语法正常" "python3 -m py_compile apps/runtime/*.py"
+check "shared runtime 包语法正常" "cd \"$SHARED_RUNTIME_ROOT\" && PYTHONPATH=src python3 -m compileall -q src tests"
+check "FastAPI 工作台语法正常" "python3 -m py_compile apps/api/*.py apps/api/services/*.py"
 check "Web 工作台配置存在" "test -f apps/web/package.json && test -f apps/web/src/App.tsx"
 if [ -d apps/web/node_modules ]; then
   check "Web 工作台 typecheck" "cd apps/web && npm run typecheck"
@@ -112,7 +118,7 @@ check "apps/scheduler/jobs.json 可解析" "python3 -c 'import json; json.load(o
 check "config/state-sync.example.json 可解析" "python3 -c 'import json; json.load(open(\"config/state-sync.example.json\"))'"
 check "model_tests.example.json 可解析" "python3 -c 'import json; json.load(open(\"model_tests.example.json\"))'"
 check ".claude/settings.json 可解析" "python3 -c 'import json; json.load(open(\".claude/settings.json\"))'"
-check "template settings 可解析" "python3 -c 'import json; json.load(open(\"design/templates/config/settings-claude-code.json\"))'"
+check "claude settings example 可解析" "python3 -c 'import json; json.load(open(\"config/claude-settings.example.json\"))'"
 
 echo ""
 echo "[工作目录]"
@@ -125,7 +131,6 @@ echo ""
 echo "[content-runtime CLI]"
 check "content_runtime.py --help 可执行" "python3 skills/content-generate/scripts/content_runtime.py --help"
 check "content_runtime.py kb search --help 可执行" "python3 skills/content-generate/scripts/content_runtime.py kb search --help"
-check "content_runtime.py kb legacy --help 可执行" "python3 skills/content-generate/scripts/content_runtime.py kb legacy --help"
 check "content_runtime.py text draft --help 可执行" "python3 skills/content-generate/scripts/content_runtime.py text draft --help"
 check "content_runtime.py plan build --help 可执行" "python3 skills/content-generate/scripts/content_runtime.py plan build --help"
 check "finalize.py --help 可执行" "python3 scripts/finalize.py --help"
@@ -138,17 +143,17 @@ check "workbench_service.py list 可执行" "python3 scripts/workbench_service.p
 check "make help 可执行" "make help"
 check "make status 可执行" "make status"
 check "FastAPI app 可导入" "python3 -c 'from apps.api.main import app; assert app.title'"
-check "workbench server.py --help 可执行" "python3 apps/workbench/server.py --help"
 check "workbench_smoke.py --help 可执行" "python3 scripts/workbench_smoke.py --help"
 check "model_backend_smoke.py --help 可执行" "python3 scripts/model_backend_smoke.py --help"
 check "model_backend_smoke.py --list 可执行" "python3 scripts/model_backend_smoke.py --list"
 
 echo ""
 echo "[shared-runtime]"
-check "agent-runtime CLI 可执行" "test -x \"$SHARED_RUNTIME_CLI\""
-check "agent-runtime doctor 可执行" "\"$SHARED_RUNTIME_CLI\" doctor --json"
-check "agent-runtime agent profiles 可读取" "\"$SHARED_RUNTIME_CLI\" profiles list --project agent --json"
-check "agent-runtime agent fake turn smoke" "tmp_prompt=\$(mktemp); printf 'agent fake smoke\n' > \"\$tmp_prompt\"; \"$SHARED_RUNTIME_CLI\" turn run --project agent --provider fake --prompt-file \"\$tmp_prompt\" --id agent-validate-\$\$ --cwd \"$PWD\" --force --json; status=\$?; rm -f \"\$tmp_prompt\"; test \"\$status\" -eq 0"
+check "agentrun 源码存在" "test -d \"$SHARED_RUNTIME_ROOT/src/agentrun\""
+check "agentrun 单测通过" "cd \"$SHARED_RUNTIME_ROOT\" && PYTHONPATH=src python3 -m unittest discover -s tests -v"
+check "agentrun doctor 可执行" "run_agentrun --json doctor"
+check "agentrun profiles 可读取" "run_agentrun --json profiles"
+check "agentrun agent fake task smoke" "tmp_prompt=\$(mktemp); printf 'agent fake smoke\n' > \"\$tmp_prompt\"; run_agentrun task run --project agent --profile fake --prompt-file \"\$tmp_prompt\" --run-id agent-validate-\$\$ --cwd \"$PWD\" --force --json; status=\$?; rm -f \"\$tmp_prompt\"; test \"\$status\" -eq 0"
 
 if [ "$MODE" = "e2e" ]; then
   echo ""

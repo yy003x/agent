@@ -14,9 +14,9 @@ import subprocess
 import sys
 from pathlib import Path
 
-from runtime import MainRuntime
-from runtime import model_backends
-from runtime.shared_runtime import shared_runtime_available
+from apps.runtime import MainRuntime
+from apps.runtime import model_backends
+from apps.runtime.shared_runtime import shared_runtime_available
 
 ROOT = Path(__file__).resolve().parents[2]
 MAIN_RUNTIME = MainRuntime()
@@ -94,10 +94,10 @@ def collect_health() -> dict:
             "detail": _safe_runtime_detail(runtime_cfg["codex"]),
         },
         {
-            "id": "tmux-submit-config",
-            "label": "tmux detector/自动发送",
+            "id": "provider-profiles",
+            "label": "AgentRun provider 配置",
             "status": "ok",
-            "detail": json.dumps(runtime_cfg["tmux_submit"], ensure_ascii=False),
+            "detail": json.dumps(runtime_cfg["provider_profiles"], ensure_ascii=False),
         },
         {
             "id": "shared-runtime",

@@ -1,5 +1,4 @@
 import {
-  Activity,
   Copy,
   FolderOpen,
   Play,
@@ -7,12 +6,12 @@ import {
   RefreshCw,
   Search,
   Send,
-  Settings,
   Square,
   Trash2
 } from "lucide-react";
 import { FormEvent, KeyboardEvent, useEffect, useMemo, useState } from "react";
 import { api } from "./api/client";
+import { PreviewPanel, ProgressPanel, SettingsPanel } from "./components/Panels";
 import type {
   AppStatePayload,
   FilePreviewPayload,
@@ -26,6 +25,7 @@ import type {
   SessionDetail,
   SessionSummary
 } from "./types";
+import { normalizeOutput, providerLabel, statusClass, titleFromMessage } from "./utils";
 
 type TabKey = "progress" | "materials" | "outputs" | "settings" | "diagnostics";
 
@@ -36,46 +36,6 @@ const tabs: Array<{ key: TabKey; label: string }> = [
   { key: "settings", label: "设置" },
   { key: "diagnostics", label: "诊断" }
 ];
-
-function providerLabel(value?: string) {
-  if (value === "claude_cli") return "Claude";
-  if (value === "fake") return "测试 Runtime";
-  return "Codex";
-}
-
-function statusClass(value?: string) {
-  if (["done", "ok", "idle", "success"].includes(value ?? "")) return "ok";
-  if (["running", "queued", "waiting_result", "warn"].includes(value ?? "")) return "warn";
-  if (["failed", "stopped", "missing"].includes(value ?? "")) return "bad";
-  return "";
-}
-
-function titleFromMessage(content: string) {
-  const firstLine = content.split(/\r?\n/).map((line) => line.trim()).find(Boolean) ?? "新会话";
-  const firstSentence = firstLine.split(/(?<=[。！？!?])/)[0] || firstLine;
-  return firstSentence.length > 36 ? `${firstSentence.slice(0, 36)}...` : firstSentence;
-}
-
-function outputType(path: string, label = "") {
-  const text = `${path} ${label}`.toLowerCase();
-  if (text.includes("xiaohongshu") || text.includes("小红书")) return "小红书图文";
-  if (text.includes("moments") || text.includes("朋友圈")) return "朋友圈文案";
-  if (text.includes("wechat") || text.includes("群话术") || text.includes("家长群")) return "家长群话术";
-  if (text.includes("compliance") || text.includes("审核")) return "合规审核报告";
-  if (text.includes("campaign") || text.includes("活动")) return "活动计划";
-  if (text.includes("knowledge") || text.includes("sync")) return "知识库同步报告";
-  return "运营产出";
-}
-
-function normalizeOutput(item: OutputRef): OutputRef {
-  const label = item.label || item.name || item.path.split("/").pop() || item.path;
-  return {
-    ...item,
-    label,
-    type: item.type || outputType(item.path, label),
-    status: item.status || "草稿"
-  };
-}
 
 export function App() {
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
@@ -139,7 +99,7 @@ export function App() {
   async function createSession(title = "") {
     const data = await api<SessionSummary>("/api/chat/sessions", {
       method: "POST",
-      body: JSON.stringify({ title })
+      body: JSON.stringify({ title, runtime: config.chat_provider || "tmux" })
     });
     await refreshState();
     await loadSession(data.session_id);
@@ -181,7 +141,7 @@ export function App() {
     if (!sessionId) {
       const created = await api<SessionSummary>("/api/chat/sessions", {
         method: "POST",
-        body: JSON.stringify({ title: titleFromMessage(content) })
+        body: JSON.stringify({ title: titleFromMessage(content), runtime: config.chat_provider || "tmux" })
       });
       sessionId = created.session_id;
       setCurrentSession(sessionId);
@@ -230,8 +190,9 @@ export function App() {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
     const payload: RuntimeConfig = {
-      chat_provider: String(form.get("chat_provider") || "codex_cli"),
-      runtime_provider: String(form.get("runtime_provider") || "codex_cli"),
+      chat_provider: String(form.get("chat_provider") || "tmux"),
+      runtime_provider: String(form.get("runtime_provider") || "tmux"),
+      code_cli_profile: String(form.get("code_cli_profile") || "codex-cli"),
       codex_command: String(form.get("codex_command") || "codex"),
       codex_sandbox: String(form.get("codex_sandbox") || "workspace-write"),
       codex_approval: String(form.get("codex_approval") || "never"),
@@ -251,15 +212,15 @@ export function App() {
   }
 
   async function refreshRuns() {
-    const data = await api<{ runs: RuntimeRun[] }>("/api/runtime/tmux/runs");
+    const data = await api<{ runs: RuntimeRun[] }>("/api/runtime/runs");
     setRuns(data.runs ?? []);
   }
 
   async function startRuntimeRun(event: FormEvent) {
     event.preventDefault();
-    await api("/api/runtime/tmux/runs", {
+    await api("/api/runtime/runs", {
       method: "POST",
-      body: JSON.stringify({ runtime: config.runtime_provider || "codex_cli", prompt: runtimePrompt })
+      body: JSON.stringify({ runtime: config.runtime_provider || "tmux", prompt: runtimePrompt })
     });
     await refreshRuns();
   }
@@ -271,7 +232,7 @@ export function App() {
   }
 
   async function loadRunLogs(runId: string) {
-    const data = await api<{ text?: string }>(`/api/runtime/tmux/runs/${runId}/logs`);
+    const data = await api<{ text?: string }>(`/api/runtime/runs/${runId}/logs`);
     setRuntimeLogs(data.text ?? "");
   }
 
@@ -289,7 +250,7 @@ export function App() {
         await refreshRuns();
         await refreshCurrentSession();
       });
-    }, 4000);
+    }, 1500);
     return () => window.clearInterval(timer);
   }, [currentSession]);
 
@@ -480,7 +441,12 @@ export function App() {
 
         {activeTab === "settings" && (
           <section className="panel">
-            <SettingsPanel config={config} health={health} onSubmit={(event) => guarded(() => saveSettings(event))} />
+            <SettingsPanel
+              config={config}
+              health={health}
+              choices={runtimeConfig.runtime_choices}
+              onSubmit={(event) => guarded(() => saveSettings(event))}
+            />
           </section>
         )}
 
@@ -509,14 +475,14 @@ export function App() {
                     <button type="submit"><Play size={14} /> 启动测试任务</button>
                   </form>
                   <div className="card-list">
-                    {runs.filter((run) => run.runtime !== "fake").map((run) => (
+                    {runs.map((run) => (
                       <article className="card" key={run.run_id}>
                         <h3>{run.run_id}</h3>
                         <span>{run.runtime} · {run.state} · {run.output_bytes || 0} bytes</span>
                         <div className="action-row">
                           <button onClick={() => guarded(() => loadRunLogs(run.run_id))}>日志</button>
                           <button onClick={() => guarded(async () => {
-                            await api(`/api/runtime/tmux/runs/${run.run_id}/stop`, { method: "POST", body: "{}" });
+                            await api(`/api/runtime/runs/${run.run_id}/stop`, { method: "POST", body: "{}" });
                             await refreshRuns();
                           })}><Square size={14} /> 停止</button>
                         </div>
@@ -535,88 +501,5 @@ export function App() {
         )}
       </aside>
     </main>
-  );
-}
-
-function ProgressPanel(props: {
-  operator?: OperatorView;
-  onStop: () => void;
-  onDiagnostics: () => void;
-  onPreview: (path: string) => Promise<void>;
-}) {
-  const progress = props.operator?.progress;
-  if (!progress) return <div className="empty">选择或创建一个会话后显示任务进度。</div>;
-  return (
-    <article className="progress-card">
-      <div className="progress-head">
-        <div>
-          <h3>{progress.title || "当前任务"}</h3>
-          <span>{progress.current_step || "等待输入"} · {progress.provider_label || providerLabel(progress.provider)}</span>
-        </div>
-        <span className={`pill ${statusClass(progress.status)}`}>{progress.status_label || progress.status}</span>
-      </div>
-      <p>{progress.activity}</p>
-      {progress.elapsed_seconds != null && <span>已运行约 {Math.floor(progress.elapsed_seconds / 60)} 分 {progress.elapsed_seconds % 60} 秒</span>}
-      {progress.friendly_error && <div className="friendly-error">{progress.friendly_error}</div>}
-      <div className="action-row">
-        <button onClick={props.onDiagnostics}><Activity size={14} /> 打开诊断</button>
-        {["running", "queued"].includes(progress.status || "") && <button className="danger-button" onClick={props.onStop}>停止任务</button>}
-      </div>
-      {(progress.outputs ?? []).length > 0 && (
-        <div className="card-list compact">
-          {(progress.outputs ?? []).map((output) => (
-            <button className="output-link" key={output.path} onClick={() => props.onPreview(output.path)}>
-              {output.label || output.path}
-            </button>
-          ))}
-        </div>
-      )}
-    </article>
-  );
-}
-
-function PreviewPanel({ preview }: { preview: FilePreviewPayload }) {
-  if (preview.kind === "image" && preview.data_url) {
-    return <div className="preview"><img src={preview.data_url} alt={preview.path || "preview"} /></div>;
-  }
-  if (preview.kind === "text") {
-    return <pre className="preview">{preview.text}</pre>;
-  }
-  return <pre className="preview">{JSON.stringify(preview.entries ?? preview.message ?? preview, null, 2)}</pre>;
-}
-
-function SettingsPanel({ config, health, onSubmit }: { config: RuntimeConfig; health: HealthPayload; onSubmit: (event: FormEvent<HTMLFormElement>) => void }) {
-  const checks = Object.fromEntries((health.checks ?? []).map((item) => [item.id, item]));
-  return (
-    <form className="settings-form" onSubmit={onSubmit}>
-      <div className="settings-grid">
-        <div className="card"><h3>聊天助手</h3><span>{providerLabel(config.chat_provider)}</span></div>
-        <div className="card"><h3>长任务助手</h3><span>{providerLabel(config.runtime_provider)}</span></div>
-        <div className="card"><h3>执行模式</h3><span>shared runtime</span></div>
-      </div>
-      <div className="status-row">
-        <span className={`pill ${statusClass(checks.codex?.status)}`}>Codex {checks.codex?.status || "unknown"}</span>
-        <span className={`pill ${statusClass(checks.claude?.status)}`}>Claude {checks.claude?.status || "unknown"}</span>
-        <span className={`pill ${statusClass(checks["shared-runtime"]?.status)}`}>Runtime {checks["shared-runtime"]?.status || "unknown"}</span>
-      </div>
-      <div className="form-grid">
-        <label>聊天助手<select name="chat_provider" defaultValue={config.chat_provider || "codex_cli"}><option value="codex_cli">Codex</option><option value="claude_cli">Claude</option></select></label>
-        <label>长任务助手<select name="runtime_provider" defaultValue={config.runtime_provider || "codex_cli"}><option value="codex_cli">Codex</option><option value="claude_cli">Claude</option></select></label>
-      </div>
-      <details>
-        <summary>高级启动参数</summary>
-        <label>Codex 命令<input name="codex_command" defaultValue={config.codex_command || "codex"} /></label>
-        <label>Codex sandbox<input name="codex_sandbox" defaultValue={config.codex_sandbox || "workspace-write"} /></label>
-        <label>Codex approval<input name="codex_approval" defaultValue={config.codex_approval || "never"} /></label>
-        <label>Codex extra args<input name="codex_extra_args" defaultValue={config.codex_extra_args || ""} /></label>
-        <label className="toggle"><input name="codex_no_alt_screen" type="checkbox" defaultChecked={Boolean(config.codex_no_alt_screen)} /> Codex no-alt-screen</label>
-        <label className="toggle"><input name="codex_bypass" type="checkbox" defaultChecked={Boolean(config.codex_bypass)} /> Codex bypass</label>
-        <label>Claude 命令<input name="claude_command" defaultValue={config.claude_command || "claude"} /></label>
-        <label>Claude permission mode<input name="claude_permission_mode" defaultValue={config.claude_permission_mode || "dontAsk"} /></label>
-        <label>Claude extra args<input name="claude_extra_args" defaultValue={config.claude_extra_args || ""} /></label>
-        <label className="toggle"><input name="claude_skip_permissions" type="checkbox" defaultChecked={Boolean(config.claude_skip_permissions)} /> Claude skip permissions</label>
-      </details>
-      <button className="primary-button" type="submit"><Settings size={15} /> 保存助手配置</button>
-    </form>
   );
 }

@@ -29,7 +29,7 @@ API_SERVICE_PREFIX = "agent_workbench_api"
 WEB_SERVICE_PREFIX = "agent_workbench_web"
 DEFAULT_HOST = os.environ.get("AGENT_WORKBENCH_API_HOST", "127.0.0.1")
 DEFAULT_API_PORT = int(os.environ.get("AGENT_WORKBENCH_API_PORT", "8765"))
-DEFAULT_WEB_PORT = int(os.environ.get("AGENT_WORKBENCH_WEB_PORT", "5173"))
+DEFAULT_WEB_PORT = int(os.environ.get("AGENT_WORKBENCH_WEB_PORT", "5678"))
 STATE_VERSION = 1
 
 
@@ -115,6 +115,43 @@ def managed_states() -> list[dict[str, Any]]:
             state = {"name": path.stem, "status": "invalid-state"}
         states.append(state)
     return states
+
+
+def _state_pid(state: dict[str, Any]) -> int:
+    return int(state.get("pid", 0)) if str(state.get("pid", "")).isdigit() else 0
+
+
+def _running_role_states(prefix: str, *, exclude_name: str = "") -> list[dict[str, Any]]:
+    records: list[dict[str, Any]] = []
+    for state in managed_states():
+        name = str(state.get("name", ""))
+        if not name.startswith(f"{prefix}_") or name == exclude_name:
+            continue
+        if process_alive(_state_pid(state)):
+            records.append(state)
+    return records
+
+
+def _restart_singleton_role(prefix: str, timeout: float) -> bool:
+    running = _running_role_states(prefix)
+    if not running:
+        return True
+    role = "Web" if prefix == WEB_SERVICE_PREFIX else "API"
+    ok = True
+    for state in running:
+        name = str(state.get("name", ""))
+        pid = _state_pid(state)
+        if pid and process_alive(pid):
+            if stop_pid(pid, timeout):
+                print(f"stopped existing {role} service {name} pid={pid}")
+            else:
+                print(f"failed to stop existing {role} service {name} pid={pid}", file=sys.stderr)
+                ok = False
+                continue
+        state["status"] = "stopped"
+        state["stopped_at"] = utc_now()
+        save_state(state)
+    return ok
 
 
 def run_quiet(cmd: list[str]) -> subprocess.CompletedProcess[str]:
@@ -214,23 +251,10 @@ def start_service(args: argparse.Namespace) -> int:
     log_path = Path(args.log) if args.log else default_log_path(port)
     ensure_dirs()
 
+    if not _restart_singleton_role(API_SERVICE_PREFIX, getattr(args, "timeout", 8.0)):
+        return 2
+
     state = load_state(name)
-    existing_pid = int(state.get("pid", 0)) if state and str(state.get("pid", "")).isdigit() else None
-    if process_alive(existing_pid):
-        print(f"{name} already running pid={existing_pid}")
-        return 0
-
-    if tmux_session_exists(name):
-        if args.replace_legacy_tmux:
-            stop_tmux_session(name)
-        else:
-            print(
-                f"{name} is a legacy tmux session. "
-                "Use --replace-legacy-tmux to replace it with a managed service.",
-                file=sys.stderr,
-            )
-            return 2
-
     listeners = listener_records(port)
     if listeners:
         detail = ", ".join(f"pid={item['pid']} command={item.get('process_command', item.get('command', ''))}" for item in listeners)
@@ -296,12 +320,10 @@ def start_web_service(args: argparse.Namespace) -> int:
     log_path = Path(args.log) if args.log else default_web_log_path(port)
     ensure_dirs()
 
-    state = load_state(name)
-    existing_pid = int(state.get("pid", 0)) if state and str(state.get("pid", "")).isdigit() else None
-    if process_alive(existing_pid):
-        print(f"{name} already running pid={existing_pid}")
-        return 0
+    if not _restart_singleton_role(WEB_SERVICE_PREFIX, getattr(args, "timeout", 8.0)):
+        return 2
 
+    state = load_state(name)
     listeners = listener_records(port)
     if listeners:
         detail = ", ".join(
@@ -393,7 +415,7 @@ def stop_service(args: argparse.Namespace) -> int:
     state = load_state(name)
 
     if state:
-        pid = int(state.get("pid", 0)) if str(state.get("pid", "")).isdigit() else 0
+        pid = _state_pid(state)
         if pid and process_alive(pid):
             if not stop_pid(pid, args.timeout):
                 print(f"failed to stop {name} pid={pid}", file=sys.stderr)
@@ -403,19 +425,6 @@ def stop_service(args: argparse.Namespace) -> int:
         state["status"] = "stopped"
         state["stopped_at"] = utc_now()
         save_state(state)
-
-    if tmux_session_exists(name):
-        if args.legacy_tmux:
-            stop_tmux_session(name)
-            stopped = True
-            print(f"stopped legacy tmux session {name}")
-        else:
-            print(
-                f"{name} is still running as legacy tmux. "
-                "Pass --legacy-tmux to stop that session.",
-                file=sys.stderr,
-            )
-            return 2
 
     if not stopped:
         print(f"{name} is not running")
@@ -427,7 +436,7 @@ def stop_named_service(name: str, timeout: float) -> bool:
     if not state:
         print(f"{name} is not running")
         return True
-    pid = int(state.get("pid", 0)) if str(state.get("pid", "")).isdigit() else 0
+    pid = _state_pid(state)
     stopped = False
     if pid and process_alive(pid):
         if not stop_pid(pid, timeout):
@@ -450,39 +459,23 @@ def stop_web_service(args: argparse.Namespace) -> int:
 
 
 def restart_service(args: argparse.Namespace) -> int:
-    stop_args = argparse.Namespace(
-        name=args.name,
-        port=args.port,
-        timeout=args.timeout,
-        legacy_tmux=args.replace_legacy_tmux,
-    )
-    stop_code = stop_service(stop_args)
-    if stop_code not in {0, 2}:
-        return stop_code
     start_args = argparse.Namespace(
         name=args.name,
         port=args.port,
         host=args.host,
         log=args.log,
-        replace_legacy_tmux=args.replace_legacy_tmux,
+        timeout=args.timeout,
     )
     return start_service(start_args)
 
 
 def restart_web_service(args: argparse.Namespace) -> int:
-    stop_args = argparse.Namespace(
-        name=args.name,
-        port=args.port,
-        timeout=args.timeout,
-    )
-    stop_code = stop_web_service(stop_args)
-    if stop_code != 0:
-        return stop_code
     start_args = argparse.Namespace(
         name=args.name,
         port=args.port,
         host=args.host,
         log=args.log,
+        timeout=args.timeout,
     )
     return start_web_service(start_args)
 
@@ -493,66 +486,12 @@ def stop_all_services(args: argparse.Namespace) -> int:
         name = str(state.get("name", ""))
         if name.startswith((API_SERVICE_PREFIX, WEB_SERVICE_PREFIX)):
             ok = stop_named_service(name, args.timeout) and ok
-    if args.legacy_tmux:
-        for session in tmux_sessions():
-            name = str(session.get("name", ""))
-            stop_tmux_session(name)
-            print(f"stopped legacy tmux session {name}")
     return 0 if ok else 1
-
-
-def tmux_session_exists(name: str) -> bool:
-    result = run_quiet(["tmux", "has-session", "-t", name])
-    return result.returncode == 0
-
-
-def stop_tmux_session(name: str) -> None:
-    run_quiet(["tmux", "kill-session", "-t", name])
-
-
-def tmux_sessions() -> list[dict[str, Any]]:
-    result = run_quiet(["tmux", "list-sessions", "-F", "#{session_name}|#{session_windows}|#{session_attached}"])
-    if result.returncode != 0:
-        return []
-    sessions: list[dict[str, Any]] = []
-    for line in result.stdout.splitlines():
-        parts = line.split("|")
-        if len(parts) != 3:
-            continue
-        name, windows, attached = parts
-        if not name.startswith("agent_workbench_"):
-            continue
-        pane = run_quiet(["tmux", "list-panes", "-t", name, "-F", "#{pane_pid}|#{pane_current_command}|#{pane_current_path}"])
-        pid = ""
-        command = ""
-        cwd = ""
-        if pane.returncode == 0 and pane.stdout.splitlines():
-            pane_parts = pane.stdout.splitlines()[0].split("|")
-            if len(pane_parts) >= 3:
-                pid, command, cwd = pane_parts[:3]
-        port = infer_port(name, None) if re.fullmatch(rf"{re.escape(API_SERVICE_PREFIX)}_\d+", name) else None
-        sessions.append(
-            {
-                "name": name,
-                "status": "running",
-                "pid": pid,
-                "port": port or "",
-                "host": "127.0.0.1" if port else "",
-                "url": f"http://127.0.0.1:{port}" if port else "",
-                "source": "legacy-tmux",
-                "log_path": str(default_log_path(port)) if port else "",
-                "command": process_command(int(pid)) if str(pid).isdigit() else command,
-                "cwd": cwd,
-                "windows": windows,
-                "attached": attached,
-            }
-        )
-    return sessions
 
 
 def managed_record(state: dict[str, Any]) -> dict[str, Any]:
     name = str(state.get("name", ""))
-    pid = int(state.get("pid", 0)) if str(state.get("pid", "")).isdigit() else 0
+    pid = _state_pid(state)
     running = process_alive(pid)
     status = state.get("status", "unknown")
     if running:
@@ -577,11 +516,11 @@ def managed_record(state: dict[str, Any]) -> dict[str, Any]:
 
 
 def collect_services() -> list[dict[str, Any]]:
-    records = [managed_record(state) for state in managed_states()]
-    managed_names = {record["name"] for record in records}
-    for session in tmux_sessions():
-        if session["name"] not in managed_names:
-            records.append(session)
+    records = [
+        record
+        for state in managed_states()
+        if (record := managed_record(state)).get("status") != "stopped"
+    ]
     return sorted(records, key=lambda item: (str(item.get("name", "")), str(item.get("source", ""))))
 
 
@@ -596,7 +535,7 @@ def print_table(records: list[dict[str, Any]]) -> None:
         ("Log", "log_path"),
     ]
     widths = [
-        max(len(title), *(len(str(record.get(key, ""))) for record in records))
+        max([len(title), *(len(str(record.get(key, ""))) for record in records)])
         for title, key in columns
     ]
     header = "  ".join(title.ljust(width) for (title, _), width in zip(columns, widths))
@@ -711,7 +650,7 @@ def add_common_service_args(parser: argparse.ArgumentParser, *, include_host: bo
 
 
 def add_web_service_args(parser: argparse.ArgumentParser, *, include_host: bool = False, include_log: bool = False) -> None:
-    parser.add_argument("name", nargs="?", help="service name, for example agent_workbench_web_5173")
+    parser.add_argument("name", nargs="?", help="service name, for example agent_workbench_web_5678")
     parser.add_argument("--port", type=int, help=f"Web port, default {DEFAULT_WEB_PORT}")
     if include_host:
         parser.add_argument("--host", default=DEFAULT_HOST, help=f"bind host, default {DEFAULT_HOST}")
@@ -723,30 +662,27 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Manage local Agent workbench services.")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    list_parser = subparsers.add_parser("list", help="list managed and legacy workbench services")
+    list_parser = subparsers.add_parser("list", help="list managed workbench services")
     list_parser.add_argument("--json", action="store_true", help="print JSON")
     list_parser.set_defaults(func=list_services)
 
-    start_parser = subparsers.add_parser("start", help="start the API as a background service")
+    start_parser = subparsers.add_parser("start", help="restart the API singleton as a background service")
     add_common_service_args(start_parser, include_host=True, include_log=True)
-    start_parser.add_argument("--replace-legacy-tmux", action="store_true", help="kill same-named legacy tmux session before starting")
+    start_parser.add_argument("--timeout", type=float, default=8.0, help="seconds before SIGKILL")
     start_parser.set_defaults(func=start_service)
 
     stop_parser = subparsers.add_parser("stop", help="stop a managed service")
     add_common_service_args(stop_parser)
     stop_parser.add_argument("--timeout", type=float, default=8.0, help="seconds before SIGKILL")
-    stop_parser.add_argument("--legacy-tmux", action="store_true", help="also stop same-named legacy tmux session")
     stop_parser.set_defaults(func=stop_service)
 
     stop_all_parser = subparsers.add_parser("stop-all", help="stop all managed workbench services")
     stop_all_parser.add_argument("--timeout", type=float, default=8.0, help="seconds before SIGKILL")
-    stop_all_parser.add_argument("--legacy-tmux", action="store_true", help="also stop legacy tmux workbench sessions")
     stop_all_parser.set_defaults(func=stop_all_services)
 
     restart_parser = subparsers.add_parser("restart", help="restart a managed service")
     add_common_service_args(restart_parser, include_host=True, include_log=True)
     restart_parser.add_argument("--timeout", type=float, default=8.0, help="seconds before SIGKILL")
-    restart_parser.add_argument("--replace-legacy-tmux", action="store_true", help="replace same-named legacy tmux session")
     restart_parser.set_defaults(func=restart_service)
 
     status_parser = subparsers.add_parser("status", help="show one service")
@@ -759,8 +695,9 @@ def build_parser() -> argparse.ArgumentParser:
     logs_parser.add_argument("--lines", type=int, default=80, help="lines to print")
     logs_parser.set_defaults(func=logs_service)
 
-    web_start_parser = subparsers.add_parser("web-start", help="start the Web dev server as a background service")
+    web_start_parser = subparsers.add_parser("web-start", help="restart the Web singleton as a background service")
     add_web_service_args(web_start_parser, include_host=True, include_log=True)
+    web_start_parser.add_argument("--timeout", type=float, default=8.0, help="seconds before SIGKILL")
     web_start_parser.set_defaults(func=start_web_service)
 
     web_stop_parser = subparsers.add_parser("web-stop", help="stop a managed Web service")

@@ -1,7 +1,7 @@
 # 本地内容生成 Agent 依赖
 # 安装：pip install -r requirements.txt
 
-# 知识库层（见 agent-dev/04-knowledge-base.md）
+# 知识库层
 lancedb>=0.13               # 本地向量库 + FTS（hybrid 检索，嵌入式无服务）
 sentence-transformers>=3.0  # bge-small-zh-v1.5 向量 + bge-reranker-base 精排
 jieba>=0.42                 # 中文分词（FTS 列 text_seg 与查询）

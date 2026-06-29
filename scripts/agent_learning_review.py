@@ -4,7 +4,7 @@
 扫描事实源（session 记录 / KB 检索日志 / 成品包），按「候选判定标准」提炼学习候选，
 写到 workspace/agent-learning/candidates-YYYY-MM-DD.md，供人工确认后晋升。
 
-设计依据：02-self-evolution.md。
+设计依据：design/README.md。
 
 用法：
   python scripts/agent_learning_review.py [--days N]   默认 7
@@ -184,7 +184,7 @@ def detect_candidates(sessions, searches, output_types) -> list[dict]:
 
 
 def dedup_existing(cands: list[dict]) -> list[dict]:
-    """过滤掉历史候选已覆盖（pending/accepted）的相同 key。"""
+    """过滤掉既有候选已覆盖（pending/accepted）的相同 key。"""
     seen: set[str] = set()
     if LEARNING_DIR.exists():
         for f in LEARNING_DIR.glob("candidates-*.md"):

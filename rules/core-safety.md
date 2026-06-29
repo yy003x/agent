@@ -12,7 +12,6 @@
 - `content_runtime.py kb ingest`
 - `content_runtime.py kb index --rebuild`
 - `content_runtime.py kb gc`
-- `content_runtime.py kb legacy`
 - `content_runtime.py text draft --out`
 - `content_runtime.py plan build`
 - `content_runtime.py media assemble`

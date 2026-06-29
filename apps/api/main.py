@@ -28,7 +28,7 @@ from apps.api.schemas import (
 )
 from apps.api.services import workbench
 from apps.workflows import content_delivery
-from runtime import model_backends
+from apps.runtime import model_backends
 
 ROOT = Path(__file__).resolve().parents[2]
 WEB_DIST = ROOT / "apps" / "web" / "dist"
@@ -45,7 +45,12 @@ def _body(model: RuntimeConfigRequest) -> dict[str, Any]:
 app = FastAPI(title="个人 Agent 工作台 API", version="0.2.0")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://127.0.0.1:5173", "http://localhost:5173"],
+    allow_origins=[
+        "http://127.0.0.1:5173",
+        "http://localhost:5173",
+        "http://127.0.0.1:5678",
+        "http://localhost:5678",
+    ],
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -246,12 +251,12 @@ def cancel_content_delivery_run(run_id: str, payload: CancelWorkflowRequest | No
         raise _api_error(exc) from exc
 
 
-@app.get("/api/runtime/tmux/runs")
+@app.get("/api/runtime/runs")
 def list_runtime_runs() -> dict:
     return {"runs": workbench.MAIN_RUNTIME.list_runs()}
 
 
-@app.post("/api/runtime/tmux/runs")
+@app.post("/api/runtime/runs")
 def start_runtime_run(payload: StartRuntimeRequest) -> dict:
     try:
         config = workbench.workbench_config()
@@ -267,7 +272,7 @@ def start_runtime_run(payload: StartRuntimeRequest) -> dict:
         raise _api_error(exc) from exc
 
 
-@app.get("/api/runtime/tmux/runs/{run_id}")
+@app.get("/api/runtime/runs/{run_id}")
 def get_runtime_run(run_id: str) -> dict:
     try:
         return workbench.MAIN_RUNTIME.run_status(run_id)
@@ -275,7 +280,7 @@ def get_runtime_run(run_id: str) -> dict:
         raise _api_error(exc) from exc
 
 
-@app.get("/api/runtime/tmux/runs/{run_id}/logs")
+@app.get("/api/runtime/runs/{run_id}/logs")
 def get_runtime_run_logs(run_id: str) -> dict:
     try:
         return workbench.MAIN_RUNTIME.run_logs(run_id)
@@ -283,7 +288,7 @@ def get_runtime_run_logs(run_id: str) -> dict:
         raise _api_error(exc) from exc
 
 
-@app.post("/api/runtime/tmux/runs/{run_id}/send")
+@app.post("/api/runtime/runs/{run_id}/send")
 def send_runtime_run(run_id: str, payload: SendRuntimeRequest) -> dict:
     try:
         return workbench.MAIN_RUNTIME.send_to_run(run_id, payload.text)
@@ -291,7 +296,7 @@ def send_runtime_run(run_id: str, payload: SendRuntimeRequest) -> dict:
         raise _api_error(exc) from exc
 
 
-@app.post("/api/runtime/tmux/runs/{run_id}/stop")
+@app.post("/api/runtime/runs/{run_id}/stop")
 def stop_runtime_run(run_id: str) -> dict:
     try:
         return workbench.MAIN_RUNTIME.stop_run(run_id)

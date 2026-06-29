@@ -15,7 +15,7 @@
 | 分类 | 意图特征 / 关键词 | 主 owner |
 |---|---|---|
 | 轻量对话 / 问答 | 闲聊、解释、路径说明、状态查询、GUI 当前行为、runtime/provider 是什么 | `workbench-chat` |
-| 本地事实检索 | 查本地知识库、素材、历史设计、outputs、daily、workspace、当前项目实现 | `knowledge-search` |
+| 本地事实检索 | 查本地知识库、素材、design、outputs、daily、workspace、当前项目实现 | `knowledge-search` |
 | 外部调研 | 查/搜/找、调研、最新、竞品、业界做法、平台规则、工具现状、教程 | `workbench-research` |
 | 方案 / 设计 | 架构、方案、PRD、技术设计、工作台能力设计、流程规划、阶段计划 | `workbench-design` |
 | 素材入库准备 | 整理素材、产品资料、图片/视频批次、素材去重、命名建议、准备入库 | `book-asset` |
@@ -29,8 +29,8 @@
 | 执行 / 修改 | 实现、修改、修 bug、写脚本、生成文件、启动服务、验证、提交 | `workbench-execute` |
 | 会话 / Runtime 运维 | UI 会话、tmux worker、provider 配置、投递失败、物理删除、服务启动排障 | `workbench-session-ops` |
 | 任务收尾 | 收尾、记录一下、总结本次任务、handoff，或本轮已有实质文件变更 | `workbench-finalizer` |
-| 自我优化 | 优化你自己、复盘、学习/借鉴其它项目、迁移能力、提炼候选 | `agent-learn` |
-| Skill 管理 | 新建/迁移/改名/合并/维护本地 skill | `agent-skill-create` |
+| 自我优化 | 优化你自己、复盘、学习/借鉴其它项目、复用能力、提炼候选 | `agent-learn` |
+| Skill 管理 | 新建/搬移/改名/合并/维护本地 skill | `agent-skill-create` |
 
 ---
 
@@ -133,4 +133,4 @@ python3 scripts/finalize.py record \
 
 ### agent-skill-create
 
-本项目 skill 发现以 `skills/<name>/SKILL.md` 为准；GUI Skill Registry 会扫描该目录。不要求旧式 `skills/index.json` 或 `agents/openai.yaml`。
+本项目 skill 发现以 `skills/<name>/SKILL.md` 为准；GUI Skill Registry 会扫描该目录，不要求额外索引文件。

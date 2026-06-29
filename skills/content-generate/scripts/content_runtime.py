@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """content-runtime —— 本地知识库与媒体组装统一 CLI（P1–P3）。
 
-知识库层设计见 agent-dev/04-knowledge-base.md：
+知识库层：
   LanceDB（向量 + 标量 + FTS 同库） + BAAI/bge-small-zh-v1.5 向量
   + jieba 分词中文 FTS + RRF hybrid 融合 + BAAI/bge-reranker-base 精排。
 
@@ -13,7 +13,6 @@
                                         [--topk N] [--json] [--no-log] [--no-touch]
   python content_runtime.py kb index   --rebuild [fts|vector|graph|all] --allow-write
   python content_runtime.py kb gc      --older-than 180d [--dry-run] --allow-write
-  python content_runtime.py kb legacy  [--allow-write]
   python content_runtime.py text draft --brief <需求> --platform xiaohongshu|moments|wechat_group
                                        [--sources <search.json>] [--out <draft.json>] --allow-write
   python content_runtime.py plan build --draft <draft.json> --out <plan.json> --allow-write
@@ -21,10 +20,10 @@
   python content_runtime.py media assemble --spec <plan.json> --out <dir> --allow-write
   python content_runtime.py publish package --platform xiaohongshu|moments|wechat_group --in <dir> --allow-write
 
-写门禁：ingest / index / gc / legacy / text draft / plan build / assemble / package 写入时必须带
+写门禁：ingest / index / gc / text draft / plan build / assemble / package 写入时必须带
 --allow-write，否则仅 dry-run 或打印到 stdout。
 重依赖（lancedb / sentence-transformers / jieba / PIL / pdfplumber / ffmpeg）按需延迟导入。
-图片/视频 caption 当前仍是 legacy `codex exec --image` 实现；工作台目标态会迁移到 tmux 真会话 runtime，无需 LLM API key。
+图片/视频 caption 由本地 CLI 按需生成，并写入 caption cache。
 """
 
 from __future__ import annotations
@@ -52,7 +51,7 @@ CAPTION_CACHE = KB_DIR / "caption-cache.json"
 RUNS_DIR = Path(os.environ.get("CONTENT_RUNTIME_RUNS_DIR", ROOT / "runs" / "content-runtime")).expanduser()
 ACTIVITY_FILE = ROOT / "workspace" / ".finalize-activity.json"
 
-# 模型（见 04-knowledge-base.md §2）
+# 模型
 EMBED_MODEL = os.environ.get("EMBED_MODEL", "BAAI/bge-small-zh-v1.5")
 EMBED_DIM = 512
 RERANK_MODEL = os.environ.get("RERANK_MODEL", "BAAI/bge-reranker-base")
@@ -64,7 +63,7 @@ CODEX_TIMEOUT_S = int(os.environ.get("AGENT_CODEX_TIMEOUT_S", "180"))
 Q_INSTRUCTION = "为这个句子生成表示以用于检索相关文章："
 TEST_HASH_EMBEDDING = os.environ.get("CONTENT_RUNTIME_TEST_EMBEDDING", "").lower() in {"1", "true", "yes", "hash"}
 
-# 检索管线参数（见 04-knowledge-base.md §7）
+# 检索管线参数
 VEC_TOPN = 30
 FTS_TOPN = 30
 GRAPH_TOPN = 30        # 图召回：经 concept 扩散的 doc 数
@@ -375,10 +374,10 @@ def _blank_item() -> dict:
 
 
 def upsert_items(tbl, rows: list[dict]) -> None:
-    """先按 source_path 删旧行，再 upsert。
+    """先按 source_path 删除已有行，再 upsert。
 
     防孤儿 chunk：doc 的 id 含 mtime，文件更新后所有 chunk 得到新 id，仅靠
-    merge_insert(id) 会留下旧 mtime 的旧 chunk。先删同 source_path 的旧行可避免。
+    merge_insert(id) 会留下原 mtime 的原 chunk。先删同 source_path 的已有行可避免。
     """
     if not rows:
         return
@@ -468,7 +467,7 @@ def caption_image_file(path: Path, fhash: str | None = None) -> tuple[str, list[
     try:
         text = _codex_caption(path)
     except Exception as exc:  # noqa: BLE001
-        log_run(f"caption fallback: {display_path(path)} reason={exc}")
+        log_run(f"caption unavailable: {display_path(path)} reason={exc}")
         text = f"{path.stem}。标签：{path.stem}"
     caption, tags = parse_caption_and_tags(text)
     cache[key] = {"caption": caption, "tags": tags}
@@ -1086,62 +1085,6 @@ def cmd_plan_build(args) -> int:
     return 0
 
 
-# ─────────────────────────── legacy cleanup ───────────────────────────
-
-def _empty_dir(path: Path) -> bool:
-    return path.is_dir() and not any(path.iterdir())
-
-
-def cmd_legacy(args) -> int:
-    targets = [
-        {"path": KB_DIR / "catalog.db", "kind": "file"},
-        {"path": KB_DIR / "vector", "kind": "dir"},
-    ]
-    report = []
-    for target in targets:
-        path = target["path"]
-        exists = path.exists()
-        size = path.stat().st_size if path.is_file() else None
-        empty = (path.is_file() and size == 0) or _empty_dir(path)
-        action = "remove_empty" if exists and empty else ("keep_non_empty" if exists else "absent")
-        report.append({
-            "path": display_path(path),
-            "_path": path,
-            "kind": target["kind"],
-            "exists": exists,
-            "size": size,
-            "empty": empty,
-            "action": action,
-        })
-
-    if args.json:
-        public_report = [{k: v for k, v in item.items() if not k.startswith("_")} for item in report]
-        print(json.dumps(public_report, ensure_ascii=False, indent=2))
-    else:
-        for item in report:
-            print(f"{item['path']}: {item['action']}")
-
-    if not args.allow_write:
-        print("[dry-run] 未删除旧栈残留（加 --allow-write 删除空文件/空目录）")
-        return 0
-
-    removed = 0
-    for item in report:
-        if item["action"] != "remove_empty":
-            continue
-        path = item["_path"]
-        if path.is_file():
-            path.unlink()
-            removed += 1
-        elif _empty_dir(path):
-            path.rmdir()
-            removed += 1
-    if removed:
-        mark_runtime_activity(f"KB legacy：清理 {removed} 个空旧栈残留")
-    print(f"[legacy] 已清理 {removed} 个空旧栈残留；非空残留保持不动")
-    return 0
-
-
 # ─────────────────────────── media ───────────────────────────
 
 def cmd_probe(args) -> int:
@@ -1375,11 +1318,6 @@ def build_parser() -> argparse.ArgumentParser:
     gc.add_argument("--dry-run", action="store_true")
     gc.add_argument("--allow-write", action="store_true")
     gc.set_defaults(func=cmd_gc)
-
-    legacy = kb.add_parser("legacy", help="检查/清理旧 KB 栈残留（只删除空残留）")
-    legacy.add_argument("--allow-write", action="store_true")
-    legacy.add_argument("--json", action="store_true")
-    legacy.set_defaults(func=cmd_legacy)
 
     rel = kb.add_parser("related")
     rel.add_argument("--id", required=True)

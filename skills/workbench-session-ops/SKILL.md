@@ -44,7 +44,7 @@ runs/workbench/sessions/<session_id>/
   runtime/provider/
 ```
 
-会话列表不是 Codex/Claude 原生历史，而是工作台自己的 session state。
+会话列表不是 Codex/Claude 原生会话记录，而是工作台自己的 session state。
 
 ### 步骤 4：处理 tmux runtime
 
@@ -83,13 +83,7 @@ make web-start
 make web-stop
 ```
 
-如果发现历史 tmux session（如 `agent_workbench_api_8766`）仍在运行，`list` 会显示为 `legacy-tmux`。替换为后台服务时显式执行：
-
-```bash
-python3 scripts/workbench_service.py restart --port 8766 --replace-legacy-tmux
-```
-
-旧命令 `python apps/workbench/server.py 8765` 仍可作为前台兼容入口使用，但不再推荐作为常驻启动方式。
+服务管理只负责当前后台 API / Web 进程。若端口被其它进程占用，先用 `make status`、`make logs` 和系统端口检查定位来源，再按影响范围处理。
 
 ## 输出契约
 

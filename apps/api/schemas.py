@@ -21,6 +21,7 @@ class AddMessageRequest(BaseModel):
 class RuntimeConfigRequest(BaseModel):
     chat_provider: str | None = None
     runtime_provider: str | None = None
+    code_cli_profile: str | None = None
     codex_command: str | None = None
     claude_command: str | None = None
     codex_no_alt_screen: bool | None = None

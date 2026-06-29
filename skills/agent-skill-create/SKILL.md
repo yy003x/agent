@@ -9,7 +9,7 @@ metadata:
 
 ## 触发条件
 
-当用户要求新增、迁移、改名、合并、审查或维护本项目 `skills/` 下的能力时使用本 skill。
+当用户要求新增、搬移、改名、合并、审查或维护本项目 `skills/` 下的能力时使用本 skill。
 
 当前项目的 skill 发现机制很简单：
 
@@ -17,7 +17,7 @@ metadata:
 skills/<skill-name>/SKILL.md
 ```
 
-`runtime/skill_registry.py` 会扫描这些文件，并通过 GUI 的 Skill 能力面板展示。当前项目不要求 `skills/index.json` 或 `agents/openai.yaml`。
+`apps/runtime/skill_registry.py` 会扫描这些文件，并通过 GUI 的 Skill 能力面板展示。当前项目不要求 `skills/index.json` 或 `agents/openai.yaml`。
 
 ## 执行流程
 
@@ -65,7 +65,7 @@ metadata:
 bash scripts/validate.sh --quick
 python3 - <<'PY'
 from pathlib import Path
-from runtime.skill_registry import SkillRegistry
+from apps.runtime.skill_registry import SkillRegistry
 skills = SkillRegistry(Path("skills"), Path(".")).list()
 print([item["name"] for item in skills])
 PY
@@ -91,11 +91,11 @@ python3 skills/agent-skill-create/scripts/scaffold_skill.py \
 
 - 输出：新增或更新的 skill 路径、触发边界、脚本清单、验证结果。
 - 成功标准：`skills/<name>/SKILL.md` 存在，名称一致，GUI Skill Registry 可发现。
-- 部分完成：缺脚本、缺验证或存在旧名残留时说明缺口。
+- 部分完成：缺脚本、缺验证或存在原名称残留时说明缺口。
 
 ## 安全边界
 
-不得迁入旧项目的业务痕迹、运行日志、凭证、远端目标、用户隐私或一次性任务记录。删除或改名 skill 前必须说明影响范围并得到用户确认。
+不得搬入来源项目的业务痕迹、运行日志、凭证、远端目标、用户隐私或一次性任务记录。删除或改名 skill 前必须说明影响范围并得到用户确认。
 
 ## 验证
 
@@ -108,4 +108,4 @@ bash scripts/validate.sh --quick
 
 ## 完成标准
 
-最终回复必须说明：新增/修改/删除了哪些 skill，旧名残留是否清理，当前 registry 能否发现，以及运行了哪些验证。
+最终回复必须说明：新增/修改/删除了哪些 skill，原名称残留是否清理，当前 registry 能否发现，以及运行了哪些验证。

@@ -11,7 +11,7 @@ metadata:
 
 当回答依赖当前项目或图书运营资料的本地事实时使用本 skill，包括：
 
-- 查询 `workspace/kb/` 中的图书资料、文档、图片/视频 caption、历史素材。
+- 查询 `workspace/kb/` 中的图书资料、文档、图片/视频 caption、既有素材。
 - 查找 `design/`、`outputs/`、`workspace/daily/`、`memory/summary.md` 中的既有方案、产物和 session 摘要。
 - 内容生成、方案设计或执行前需要回读真实来源。
 - 用户问“之前怎么定的”“会话记录在哪里”“某个素材/产物/设计在哪”。

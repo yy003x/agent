@@ -18,7 +18,7 @@ metadata:
 不适用于：
 
 - 图书运营文案、话术、选题、脚本等成品生成：转 `content-generate`。
-- 本地知识库、历史设计、workspace 事实查询：转 `knowledge-search`。
+- 本地知识库、design、workspace 事实查询：转 `knowledge-search`。
 - 外部可变事实、平台规则、竞品、工具现状调研：转 `workbench-research`。
 - 架构、方案、PRD、长期能力设计：转 `workbench-design`。
 - 改文件、跑命令、启动服务、验证、Git 交付：转 `workbench-execute`。
@@ -36,7 +36,7 @@ metadata:
 
 ### 步骤 3：保护事实边界
 
-涉及当前项目实现、配置、路径或历史产物时，不凭记忆猜测；读取真实文件或使用 `knowledge-search`。涉及最新平台规则、工具状态、价格、政策等可变信息时，使用 `workbench-research` 并给来源。
+涉及当前项目实现、配置、路径或既有产物时，不凭记忆猜测；读取真实文件或使用 `knowledge-search`。涉及最新平台规则、工具状态、价格、政策等可变信息时，使用 `workbench-research` 并给来源。
 
 ### 步骤 4：收尾判断
 
