@@ -1,4 +1,4 @@
-"""Model backend inventory and resolver for diagnostics and LLM API runtime."""
+"""Model backend inventory and resolver for diagnostics and API runtime."""
 from __future__ import annotations
 
 import os
@@ -198,7 +198,7 @@ def collect_model_backends() -> list[dict[str, Any]]:
 
 
 def resolve_model_backend(task: str = "text", backend_id: str | None = None) -> dict[str, Any]:
-    requested = backend_id or _env("AGENT_WORKBENCH_LLM_API_BACKEND", "")
+    requested = backend_id or _env("AGENT_WORKBENCH_API_BACKEND", "")
     candidates = BACKEND_SPECS
     if requested:
         candidates = [

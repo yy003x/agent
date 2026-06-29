@@ -192,7 +192,8 @@ export function App() {
     const payload: RuntimeConfig = {
       chat_provider: String(form.get("chat_provider") || "tmux"),
       runtime_provider: String(form.get("runtime_provider") || "tmux"),
-      code_cli_profile: String(form.get("code_cli_profile") || "codex-cli"),
+      chat_profile: String(form.get("chat_profile") || ""),
+      runtime_profile: String(form.get("runtime_profile") || ""),
       codex_command: String(form.get("codex_command") || "codex"),
       codex_sandbox: String(form.get("codex_sandbox") || "workspace-write"),
       codex_approval: String(form.get("codex_approval") || "never"),
@@ -207,6 +208,14 @@ export function App() {
     setRuntimeConfig(await api<RuntimeConfigPayload>("/api/config/runtime", {
       method: "POST",
       body: JSON.stringify(payload)
+    }));
+    await refreshState();
+  }
+
+  async function validateSettings() {
+    setRuntimeConfig(await api<RuntimeConfigPayload>("/api/config/runtime/validate", {
+      method: "POST",
+      body: "{}"
     }));
     await refreshState();
   }
@@ -445,7 +454,9 @@ export function App() {
               config={config}
               health={health}
               choices={runtimeConfig.runtime_choices}
+              allChoices={runtimeConfig.runtime_choices_all}
               onSubmit={(event) => guarded(() => saveSettings(event))}
+              onValidate={() => guarded(() => validateSettings())}
             />
           </section>
         )}

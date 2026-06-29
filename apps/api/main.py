@@ -22,6 +22,7 @@ from apps.api.schemas import (
     DraftPreviewRequest,
     OpenFileRequest,
     RuntimeConfigRequest,
+    RuntimeValidateRequest,
     SendRuntimeRequest,
     StartContentDeliveryWorkflowRequest,
     StartRuntimeRequest,
@@ -76,6 +77,14 @@ def get_runtime_config() -> dict:
 def save_runtime_config(payload: RuntimeConfigRequest) -> dict:
     try:
         return workbench.save_workbench_config(_body(payload))
+    except Exception as exc:  # noqa: BLE001
+        raise _api_error(exc) from exc
+
+
+@app.post("/api/config/runtime/validate")
+def validate_runtime_config(payload: RuntimeValidateRequest | None = None) -> dict:
+    try:
+        return workbench.validate_runtime_config(payload.model_dump() if payload else {})
     except Exception as exc:  # noqa: BLE001
         raise _api_error(exc) from exc
 

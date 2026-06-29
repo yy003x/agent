@@ -23,6 +23,12 @@ class MainRuntime:
     def effective_runtime_config(self, options: dict | None = None) -> dict:
         return external_cli.effective_runtime_config(options)
 
+    def runtime_choices(self, *, only_valid: bool = True) -> dict:
+        return external_cli.runtime_choices(only_valid=only_valid)
+
+    def validate_config(self, provider_type: str | None = None, name: str | None = None, profile_id: str | None = None) -> dict:
+        return external_cli.validate_config(provider_type=provider_type, name=name, profile_id=profile_id)
+
     def is_worker_alive(self, pane_id: str) -> bool:
         return external_cli.is_pane_alive(pane_id)
 

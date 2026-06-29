@@ -17,9 +17,9 @@ CONTENT_RUNTIME = ROOT / "skills" / "content-generate" / "scripts" / "content_ru
 MAIN_RUNTIME = MainRuntime()
 CHAT_WAIT_SECONDS = float(os.environ.get("AGENT_WORKBENCH_CHAT_WAIT_SECONDS", "120"))
 CHAT_RUNTIME = os.environ.get("AGENT_WORKBENCH_CHAT_RUNTIME", MAIN_RUNTIME.default_runtime())
-ALLOWED_RUNTIMES = {"code_cli", "llm_api", "tmux", "fake"}
-USER_RUNTIMES = {"code_cli", "llm_api", "tmux"}
-NONINTERACTIVE_RUNTIMES = {"code_cli", "llm_api", "fake"}
+ALLOWED_RUNTIMES = {"api", "cli", "tmux"}
+USER_RUNTIMES = {"api", "cli", "tmux"}
+NONINTERACTIVE_RUNTIMES = {"api", "cli"}
 
 
 def now() -> str:

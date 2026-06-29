@@ -21,7 +21,8 @@ class AddMessageRequest(BaseModel):
 class RuntimeConfigRequest(BaseModel):
     chat_provider: str | None = None
     runtime_provider: str | None = None
-    code_cli_profile: str | None = None
+    chat_profile: str | None = None
+    runtime_profile: str | None = None
     codex_command: str | None = None
     claude_command: str | None = None
     codex_no_alt_screen: bool | None = None
@@ -32,6 +33,13 @@ class RuntimeConfigRequest(BaseModel):
     claude_permission_mode: str | None = None
     claude_skip_permissions: bool | None = None
     claude_extra_args: str | None = None
+
+
+class RuntimeValidateRequest(BaseModel):
+    provider_type: str | None = None
+    name: str | None = None
+    profile: str | None = None
+    profile_id: str | None = None
 
 
 class OpenFileRequest(BaseModel):

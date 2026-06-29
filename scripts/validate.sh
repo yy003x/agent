@@ -153,7 +153,8 @@ check "agentrun 源码存在" "test -d \"$SHARED_RUNTIME_ROOT/src/agentrun\""
 check "agentrun 单测通过" "cd \"$SHARED_RUNTIME_ROOT\" && PYTHONPATH=src python3 -m unittest discover -s tests -v"
 check "agentrun doctor 可执行" "run_agentrun --json doctor"
 check "agentrun profiles 可读取" "run_agentrun --json profiles"
-check "agentrun agent fake task smoke" "tmp_prompt=\$(mktemp); printf 'agent fake smoke\n' > \"\$tmp_prompt\"; run_agentrun task run --project agent --profile fake --prompt-file \"\$tmp_prompt\" --run-id agent-validate-\$\$ --cwd \"$PWD\" --force --json; status=\$?; rm -f \"\$tmp_prompt\"; test \"\$status\" -eq 0"
+check "agentrun cli 配置可验证" "run_agentrun config validate --project agent --provider cli --profile codex-cli --json"
+check "agentrun 已验证 choices 可读取" "run_agentrun config choices --project agent --json"
 
 if [ "$MODE" = "e2e" ]; then
   echo ""

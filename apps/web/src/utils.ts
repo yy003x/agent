@@ -1,8 +1,8 @@
 import type { OutputRef } from "./types";
 
 export function providerLabel(value?: string) {
-  if (value === "code_cli") return "Code CLI";
-  if (value === "llm_api") return "LLM API";
+  if (value === "cli") return "CLI";
+  if (value === "api") return "API";
   if (value === "tmux") return "Tmux";
   return "Tmux";
 }

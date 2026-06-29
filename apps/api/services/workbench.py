@@ -19,6 +19,7 @@ from apps.api.services.workbench_config import (
     _runtime_options_from_config,
     runtime_config_payload,
     save_workbench_config,
+    validate_runtime_config,
     workbench_config,
 )
 from apps.api.services.workbench_support import (
@@ -561,7 +562,7 @@ def _ensure_chat_runtime(session_id: str, startup_contract_path: Path,
     if not runtime_alive and pane_id:
         runtime_alive = MAIN_RUNTIME.is_worker_alive(pane_id)
     if runtime_alive:
-        if runtime_meta.get("runtime") != "fake" and not runtime_meta.get("startup_contract_version"):
+        if not runtime_meta.get("startup_contract_version"):
             MAIN_RUNTIME.send_to_worker(runtime_meta, startup_contract_path.read_text(encoding="utf-8"))
             runtime_meta["startup_contract_path"] = str(startup_contract_path)
             runtime_meta["startup_contract_version"] = 1
@@ -661,7 +662,7 @@ def _deliver_chat_turn(session_id: str, turn: dict, startup_contract_path: Path,
             _run_direct_chat_turn(session_id, turn)
             return
         runtime_meta, delivery_mode = _ensure_chat_runtime(session_id, startup_contract_path, result_path)
-        if runtime_meta.get("runtime") != "fake" and delivery_mode == "send":
+        if delivery_mode == "send":
             MAIN_RUNTIME.send_to_worker(runtime_meta, payload)
         _patch_pending_turn(
             session_id,
@@ -901,15 +902,13 @@ def kb_search(query: str, modality: str = "all", topk: int = 10) -> dict:
 
 
 def _provider_label(runtime: str | None) -> str:
-    if runtime == "code_cli":
-        return "Code CLI"
-    if runtime == "llm_api":
-        return "LLM API"
+    if runtime == "cli":
+        return "CLI"
+    if runtime == "api":
+        return "API"
     if runtime == "tmux":
         return "Tmux"
-    if runtime == "fake":
-        return "测试 Runtime"
-    return "Tmux"
+    return "Runtime"
 
 
 def _operator_status_label(status: str | None) -> str:

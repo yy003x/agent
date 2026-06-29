@@ -142,6 +142,19 @@ textarea { resize: vertical; }
 .form-grid, .settings-grid { grid-template-columns: 1fr 1fr; }
 .settings-form { display: grid; gap: 14px; }
 .settings-form label { display: grid; gap: 5px; margin-top: 8px; color: #4c5b51; font-size: 13px; }
+.runtime-selector {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  border: 1px solid #dce4de;
+  border-radius: 8px;
+  padding: 10px;
+}
+.runtime-selector legend {
+  padding: 0 4px;
+  color: #24362d;
+  font-weight: 700;
+}
 .toggle { display: flex !important; grid-template-columns: auto 1fr; align-items: center; gap: 8px; }
 .toggle input { width: auto; }
 

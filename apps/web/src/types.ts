@@ -1,4 +1,4 @@
-export type RuntimeProvider = "code_cli" | "llm_api" | "tmux";
+export type RuntimeProvider = "api" | "cli" | "tmux";
 
 export interface SessionSummary {
   session_id: string;
@@ -40,7 +40,8 @@ export interface OutputRef {
 export interface RuntimeConfig {
   chat_provider?: string;
   runtime_provider?: string;
-  code_cli_profile?: string;
+  chat_profile?: string;
+  runtime_profile?: string;
   codex_command?: string;
   claude_command?: string;
   codex_no_alt_screen?: boolean;
@@ -58,6 +59,8 @@ export interface RuntimeConfigPayload {
   effective?: Record<string, unknown>;
   allowed_runtimes?: string[];
   runtime_choices?: RuntimeChoice[];
+  runtime_choices_all?: RuntimeChoice[];
+  validation?: Record<string, unknown>;
   model_backends?: ModelBackend[];
 }
 
@@ -66,6 +69,11 @@ export interface RuntimeChoice {
   label: string;
   transport: string;
   profile: string;
+  provider_type?: string;
+  provider_name?: string;
+  profile_name?: string;
+  validated?: boolean;
+  detail?: Record<string, unknown>;
 }
 
 export interface ModelBackend {

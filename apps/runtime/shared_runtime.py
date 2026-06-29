@@ -30,15 +30,13 @@ SESSION_PROFILES = {
     "tmux": "tmux-codex",
 }
 TASK_PROFILES = {
-    "fake": "fake",
-    "code_cli": "codex-cli",
-    "llm_api": "llm-api",
+    "cli": "codex-cli",
+    "api": "api-openai-gpt-4o-mini",
     "tmux": "tmux-codex",
 }
 TRANSPORT_LABELS = {
-    "fake": "fake",
-    "code_cli": "code_cli",
-    "llm_api": "llm_api",
+    "cli": "cli",
+    "api": "api",
     "tmux": "tmux",
 }
 
@@ -236,8 +234,9 @@ class SharedRuntimeAdapter:
         run_id: str | None = None,
         timeout_seconds: int = 30,
         runtime_options: dict | None = None,
+        provider_profile: str | None = None,
     ) -> dict:
-        profile = _session_profile(runtime)
+        profile = provider_profile or _session_profile(runtime)
         actual_run_id = run_id or _new_run_id("session")
         run_dir = self._prepare_local_run(actual_run_id)
         prompt_file = run_dir / "prompt.md"
@@ -385,6 +384,36 @@ class SharedRuntimeAdapter:
         write_json(status_path, stopped)
         return stopped
 
+    def config_choices(self, *, only_valid: bool = True, project_id: str = PROJECT_ID) -> dict:
+        args = ["config", "choices", "--project", project_id, "--json"]
+        if not only_valid:
+            args.insert(-1, "--all")
+        payload, proc = self._call(args, cwd=PROJECT_ROOT)
+        if proc.returncode != 0:
+            return {"ok": False, "choices": [], "error": _payload_error(payload, proc)}
+        return payload if isinstance(payload, dict) else {"ok": False, "choices": [], "error": "invalid payload"}
+
+    def validate_config(
+        self,
+        *,
+        provider_type: str | None = None,
+        name: str | None = None,
+        profile_id: str | None = None,
+        project_id: str = PROJECT_ID,
+    ) -> dict:
+        args = ["config", "validate", "--project", project_id]
+        if provider_type:
+            args.extend(["--provider", provider_type])
+        if name:
+            args.extend(["--name", name])
+        if profile_id:
+            args.extend(["--profile", profile_id])
+        args.append("--json")
+        payload, proc = self._call(args, cwd=PROJECT_ROOT, timeout=180)
+        if proc.returncode != 0:
+            return {"ok": False, "error": _payload_error(payload, proc), "results": []}
+        return payload if isinstance(payload, dict) else {"ok": False, "error": "invalid payload", "results": []}
+
     def list_local_runs(self) -> list[dict]:
         if not self.runtime_dir.exists():
             return []
@@ -492,6 +521,14 @@ def _payload_failed(payload: dict | None, shared_status: dict | None) -> bool:
     if isinstance(shared_status, dict) and shared_status.get("state") in {"failed", "blocked", "cancelled"}:
         return True
     return False
+
+
+def _payload_error(payload: dict | None, proc: subprocess.CompletedProcess[str]) -> str:
+    if isinstance(payload, dict):
+        text = str(payload.get("error") or payload.get("raw_stdout") or "").strip()
+        if text:
+            return text
+    return (proc.stderr or proc.stdout or "").strip() or "shared runtime cli failed"
 
 
 def _shared_failure_message(

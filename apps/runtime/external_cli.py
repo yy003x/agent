@@ -15,11 +15,13 @@ from .state import RuntimeErrorState
 ROOT = Path(__file__).resolve().parents[2]
 RUNS_DIR = ROOT / "runs" / "shared-runtime"
 DEFAULT_RUNTIME = os.environ.get("AGENT_WORKBENCH_DEFAULT_RUNTIME", "tmux")
-TASK_RUNTIMES = {"fake", "code_cli", "llm_api", "tmux"}
-DIRECT_CHAT_RUNTIMES = {"fake", "code_cli", "llm_api"}
+TASK_RUNTIMES = {"cli", "api", "tmux"}
+DIRECT_CHAT_RUNTIMES = {"cli", "api"}
 INTERACTIVE_RUNTIMES = {"tmux"}
 SUPPORTED_RUNTIMES = TASK_RUNTIMES | INTERACTIVE_RUNTIMES
-CODE_CLI_PROFILE = os.environ.get("AGENT_WORKBENCH_CODE_CLI_PROFILE", "codex-cli")
+CLI_PROFILE = os.environ.get("AGENT_WORKBENCH_CLI_PROFILE", "codex-cli")
+API_PROFILE = os.environ.get("AGENT_WORKBENCH_API_PROFILE", "api-openai-gpt-4o-mini")
+TMUX_PROFILE = os.environ.get("AGENT_WORKBENCH_TMUX_PROFILE", "tmux-codex")
 CODEX_SANDBOX = os.environ.get("AGENT_WORKBENCH_CODEX_SANDBOX", "workspace-write")
 CODEX_APPROVAL = os.environ.get("AGENT_WORKBENCH_CODEX_APPROVAL", "never")
 CODEX_EXTRA_ARGS = os.environ.get("AGENT_WORKBENCH_CODEX_ARGS", "")
@@ -59,7 +61,9 @@ def effective_runtime_config(options: dict | None = None) -> dict:
     codex_sandbox = _str_option(options, "codex_sandbox", CODEX_SANDBOX)
     codex_approval = _str_option(options, "codex_approval", CODEX_APPROVAL)
     codex_extra_args = _str_option(options, "codex_extra_args", CODEX_EXTRA_ARGS)
-    code_cli_profile = _profile_option(options)
+    cli_profile = _profile_option(options, "cli", purpose="runtime")
+    api_profile = _profile_option(options, "api", purpose="runtime")
+    tmux_profile = _profile_option(options, "tmux", purpose="chat")
     claude_permission_mode = _str_option(options, "claude_permission_mode", CLAUDE_PERMISSION_MODE)
     claude_skip_permissions = _bool_option(options, "claude_skip_permissions", CLAUDE_SKIP_PERMISSIONS)
     claude_extra_args = _str_option(options, "claude_extra_args", CLAUDE_EXTRA_ARGS)
@@ -89,15 +93,27 @@ def effective_runtime_config(options: dict | None = None) -> dict:
         "codex": codex,
         "claude": claude,
         "provider_profiles": {
-            "code_cli": {"transport": "code_cli", "profile": code_cli_profile},
-            "llm_api": {"transport": "llm_api", "profile": "llm-api"},
-            "tmux": {"transport": "tmux", "profile": "tmux-codex"},
+            "cli": {"transport": "cli", "profile": cli_profile},
+            "api": {"transport": "api", "profile": api_profile},
+            "tmux": {"transport": "tmux", "profile": tmux_profile},
         },
-        "tmux_submit": {"owner": "shared-runtime", "profile": "tmux-codex", "result_contract": "result.json"},
+        "tmux_submit": {"owner": "shared-runtime", "profile": tmux_profile, "result_contract": "result.json"},
         "process": {"enabled": True, "owner": "agentrun task provider"},
-        "llm_api": {"enabled": True, "profile": "llm-api", "mock_default": True},
+        "api": {"enabled": True, "profile": api_profile},
         "shared_runtime": shared,
     }
+
+
+def runtime_choices(*, only_valid: bool = True) -> dict:
+    return SharedRuntimeAdapter(RUNS_DIR).config_choices(only_valid=only_valid)
+
+
+def validate_config(provider_type: str | None = None, name: str | None = None, profile_id: str | None = None) -> dict:
+    return SharedRuntimeAdapter(RUNS_DIR).validate_config(
+        provider_type=provider_type,
+        name=name,
+        profile_id=profile_id,
+    )
 
 
 def run_chat_turn(
@@ -122,7 +138,7 @@ def run_chat_turn(
             result_file_name=str(result_path),
             run_id=session_id,
             timeout_seconds=timeout_seconds,
-            provider_profile=_profile_for_runtime(runtime, runtime_options),
+            provider_profile=_profile_for_runtime(runtime, runtime_options, purpose="chat"),
         )
     )
 
@@ -147,6 +163,7 @@ def start_chat_pane(
         result_file_name=str(result_path),
         run_id=session_id,
         runtime_options=runtime_options,
+        provider_profile=_profile_for_runtime(runtime, runtime_options, purpose="chat"),
     )
 
 
@@ -199,7 +216,7 @@ def start_run(
                 result_file_name="result.json",
                 run_id=run_id,
                 timeout_seconds=timeout_seconds,
-                provider_profile=_profile_for_runtime(runtime, runtime_options),
+                provider_profile=_profile_for_runtime(runtime, runtime_options, purpose="runtime"),
             )
         )
     if runtime not in INTERACTIVE_RUNTIMES:
@@ -234,6 +251,7 @@ def start_run(
         run_id=run_id,
         timeout_seconds=30,
         runtime_options=runtime_options,
+        provider_profile=_profile_for_runtime(runtime, runtime_options, purpose="runtime"),
     )
 
 
@@ -284,21 +302,18 @@ def _task_prompt(prompt: str) -> str:
 """
 
 
-def _profile_option(options: dict | None = None) -> str:
-    value = _str_option(options, "code_cli_profile", CODE_CLI_PROFILE).strip()
-    return value if value in {"codex-cli", "claude-cli"} else "codex-cli"
+def _profile_option(options: dict | None = None, runtime: str = "cli", *, purpose: str = "runtime") -> str:
+    key = "chat_profile" if purpose == "chat" else "runtime_profile"
+    value = _str_option(options, key, "").strip()
+    if value:
+        return value
+    defaults = {"cli": CLI_PROFILE, "api": API_PROFILE, "tmux": TMUX_PROFILE}
+    return defaults.get(runtime, "")
 
 
-def _profile_for_runtime(runtime: str, options: dict | None = None) -> str | None:
-    if runtime == "code_cli":
-        return _profile_option(options)
-    if runtime == "llm_api":
-        return "llm-api"
-    if runtime == "tmux":
-        return "tmux-codex"
-    if runtime == "fake":
-        return "fake"
-    return None
+def _profile_for_runtime(runtime: str, options: dict | None = None, *, purpose: str = "runtime") -> str | None:
+    profile = _profile_option(options, runtime, purpose=purpose)
+    return profile or None
 
 
 def _adapter_for_meta(runtime_meta: dict) -> SharedRuntimeAdapter:
