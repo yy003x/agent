@@ -95,6 +95,7 @@ check "agent skill 脚手架语法正常" "python3 -m py_compile skills/agent-sk
 check "scheduler.py 语法正常" "python3 -m py_compile apps/scheduler/scheduler.py"
 check "orchestrator.py 语法正常" "python3 -m py_compile apps/agent/orchestrator.py"
 check "brain.py 语法正常" "python3 -m py_compile apps/agent/brain.py"
+check "workflow 编排层语法正常" "python3 -m py_compile apps/workflows/*.py"
 check "runtime 包语法正常" "python3 -m py_compile runtime/*.py"
 check "FastAPI 工作台语法正常" "python3 -m py_compile apps/api/*.py apps/api/services/*.py apps/workbench/server.py"
 check "Web 工作台配置存在" "test -f apps/web/package.json && test -f apps/web/src/App.tsx"

@@ -43,6 +43,22 @@ class DraftPreviewRequest(BaseModel):
     style: str = "知识科普"
 
 
+class StartContentDeliveryWorkflowRequest(BaseModel):
+    brief: str
+    platform: str = "xiaohongshu"
+    style: str = "知识科普"
+    sources: list[dict] = Field(default_factory=list)
+
+
+class ContinueWorkflowRequest(BaseModel):
+    action: str
+    payload: dict = Field(default_factory=dict)
+
+
+class CancelWorkflowRequest(BaseModel):
+    reason: str = ""
+
+
 class StartRuntimeRequest(BaseModel):
     runtime: str | None = None
     prompt: str = "请输出一个简短状态。"

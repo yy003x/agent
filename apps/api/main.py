@@ -15,15 +15,19 @@ from apps.api import file_browser
 from apps.api import health
 from apps.api.schemas import (
     AddMessageRequest,
+    CancelWorkflowRequest,
+    ContinueWorkflowRequest,
     CreateSessionRequest,
     DeleteSessionsRequest,
     DraftPreviewRequest,
     OpenFileRequest,
     RuntimeConfigRequest,
     SendRuntimeRequest,
+    StartContentDeliveryWorkflowRequest,
     StartRuntimeRequest,
 )
 from apps.api.services import workbench
+from apps.workflows import content_delivery
 from runtime import model_backends
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -196,6 +200,50 @@ def stop_session_runtime(session_id: str) -> dict:
 @app.post("/api/content/draft")
 def draft_preview(payload: DraftPreviewRequest) -> dict:
     return workbench._draft_preview(payload.brief, payload.platform, payload.style)
+
+
+@app.get("/api/workflows/content-delivery/runs")
+def list_content_delivery_runs(limit: int = 50) -> dict:
+    return {"runs": content_delivery.list_runs(limit=limit)}
+
+
+@app.post("/api/workflows/content-delivery/runs")
+def start_content_delivery_run(payload: StartContentDeliveryWorkflowRequest) -> dict:
+    try:
+        return content_delivery.start(
+            payload.brief,
+            platform=payload.platform,
+            style=payload.style,
+            sources=payload.sources,
+        )
+    except Exception as exc:  # noqa: BLE001
+        raise _api_error(exc) from exc
+
+
+@app.get("/api/workflows/content-delivery/runs/{run_id}")
+def get_content_delivery_run(run_id: str) -> dict:
+    try:
+        return content_delivery.get(run_id)
+    except FileNotFoundError as exc:
+        raise _api_error(exc, HTTPStatus.NOT_FOUND) from exc
+    except Exception as exc:  # noqa: BLE001
+        raise _api_error(exc) from exc
+
+
+@app.post("/api/workflows/content-delivery/runs/{run_id}/continue")
+def continue_content_delivery_run(run_id: str, payload: ContinueWorkflowRequest) -> dict:
+    try:
+        return content_delivery.continue_run(run_id, payload.action, payload.payload)
+    except Exception as exc:  # noqa: BLE001
+        raise _api_error(exc) from exc
+
+
+@app.post("/api/workflows/content-delivery/runs/{run_id}/cancel")
+def cancel_content_delivery_run(run_id: str, payload: CancelWorkflowRequest | None = None) -> dict:
+    try:
+        return content_delivery.cancel(run_id, reason=payload.reason if payload else "")
+    except Exception as exc:  # noqa: BLE001
+        raise _api_error(exc) from exc
 
 
 @app.get("/api/runtime/tmux/runs")
