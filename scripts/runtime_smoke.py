@@ -65,8 +65,6 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser.add_argument("--cwd", default=str(ROOT), help="runtime 执行工作目录")
     parser.add_argument("--run-id", default="", help="指定 run_id;默认自动生成")
     parser.add_argument("--deadline-seconds", type=int, default=300, help="cli/api task 超时时间")
-    parser.add_argument("--tail", type=int, default=120, help="tmux watch 日志行数")
-    parser.add_argument("--watch-seconds", type=int, default=0, help="tmux watch 秒数;0 表示持续监控")
     parser.add_argument("--force", action="store_true", help="透传 AgentRun --force")
     parser.add_argument("--json", action="store_true", help="透传 AgentRun --json")
     return parser.parse_args(argv)
@@ -136,20 +134,13 @@ def run_tmux(
     ]
     if args.force:
         start_cmd.append("--force")
-    code = cli.run(start_cmd, timeout=120)
+    quiet_success = not args.json
+    code = cli.run(start_cmd, timeout=120, quiet_success=quiet_success)
     if code != 0:
         return code
 
     send_cmd = ["session", "send", run_id, "--project", args.project, "--text", prompt]
-    code = cli.run(send_cmd, timeout=30)
-    if code != 0:
-        return code
-
-    watch_cmd = ["session", "watch", run_id, "--project", args.project, "--tail", str(args.tail)]
-    if args.watch_seconds > 0:
-        watch_cmd.extend(["--seconds", str(args.watch_seconds)])
-    timeout = max(args.watch_seconds + 10, 15) if args.watch_seconds > 0 else None
-    return cli.run(watch_cmd, timeout=timeout)
+    return cli.run(send_cmd, timeout=30, quiet_success=quiet_success)
 
 
 class AgentRunCLI:
@@ -159,7 +150,7 @@ class AgentRunCLI:
         self.json_output = json_output
         self.pythonpath = _agentrun_pythonpath()
 
-    def run(self, args: list[str], *, timeout: int | None) -> int:
+    def run(self, args: list[str], *, timeout: int | None, quiet_success: bool = False) -> int:
         env = os.environ.copy()
         env["PYTHONPATH"] = str(self.pythonpath) + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
         cmd = [
@@ -175,10 +166,23 @@ class AgentRunCLI:
             cmd.append("--json")
         cmd.extend(args)
         try:
-            proc = subprocess.run(cmd, cwd=ROOT, env=env, text=True, timeout=timeout, check=False)
+            proc = subprocess.run(
+                cmd,
+                cwd=ROOT,
+                env=env,
+                text=True,
+                timeout=timeout,
+                check=False,
+                capture_output=quiet_success,
+            )
         except subprocess.TimeoutExpired:
             print(f"agentrun 命令超时: {' '.join(args)}", file=sys.stderr)
             return 124
+        if quiet_success and proc.returncode != 0:
+            if proc.stdout:
+                print(proc.stdout, end="")
+            if proc.stderr:
+                print(proc.stderr, end="", file=sys.stderr)
         return proc.returncode
 
 
