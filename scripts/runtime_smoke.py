@@ -151,18 +151,19 @@ def run_tmux(
     cleanup = False
     started = False
     try:
+        emit_runtime_log(args, "准备启动 runtime")
         cleanup = True
         code = cli.run(start_cmd, timeout=120, quiet_success=True, isolate_interrupt=True)
         if code != 0:
             return code
         started = True
+        emit_runtime_log(args, "runtime 已启动,准备投递输入")
 
         send_cmd = ["session", "send", run_id, "--project", args.project, "--text", prompt]
         code = cli.run(send_cmd, timeout=30, quiet_success=True, isolate_interrupt=True)
         if code != 0:
             return code
-        if not args.json:
-            print("AgentRun runtime 已启动并投递输入。按 Ctrl+C 返回 result 并关闭 session。", flush=True)
+        emit_runtime_log(args, "输入已投递,开始等待 result;按 Ctrl+C 返回当前 result 并关闭运行会话")
 
         wait_seconds = max(int(args.tmux_wait_seconds), 0)
         watch_cmd = [
@@ -190,7 +191,16 @@ def run_tmux(
         return 130
     finally:
         if cleanup:
+            emit_runtime_log(args, "正在关闭运行会话")
             cli.run(["session", "stop", run_id, "--project", args.project], timeout=30, silent=True)
+            emit_runtime_log(args, "运行会话已关闭")
+
+
+def emit_runtime_log(args: argparse.Namespace, message: str) -> None:
+    if args.json:
+        return
+    stamp = datetime.now().strftime("%H:%M:%S")
+    print(f"[runtime-smoke {stamp}] {message}", flush=True)
 
 
 def emit_tmux_result(cli: "AgentRunCLI", args: argparse.Namespace, run_id: str) -> None:
