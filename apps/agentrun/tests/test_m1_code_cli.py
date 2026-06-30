@@ -4,6 +4,8 @@ from __future__ import annotations
 import os
 import stat
 import tempfile
+import threading
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -121,6 +123,34 @@ class CodeCliTest(unittest.TestCase):
             out = CodeCliProvider(_profile(str(script), timeout=1)).run(_request(d, paths), paths)
             self.assertEqual(out["status"]["state"], "failed")
             self.assertEqual(out["status"]["failure_reason"], "timeout")
+
+    def test_output_log_streams_while_cli_is_running(self) -> None:
+        with tempfile.TemporaryDirectory() as t:
+            d = Path(t)
+            script = _script(
+                "cat >/dev/null\n"
+                "printf 'stream-line\\n'\n"
+                "sleep 1\n"
+                f"printf '{_RESULT_JSON}' > \"$AGENTRUN_RESULT_FILE\"\n",
+                d,
+            )
+            paths = run_paths(d / "runs", "_default", TASK, "task-1").ensure()
+            result: dict = {}
+
+            thread = threading.Thread(
+                target=lambda: result.update(CodeCliProvider(_profile(str(script))).run(_request(d, paths), paths))
+            )
+            thread.start()
+            deadline = time.time() + 2
+            while time.time() < deadline:
+                if paths.output_log.exists() and "stream-line" in paths.output_log.read_text(encoding="utf-8"):
+                    break
+                time.sleep(0.05)
+            self.assertTrue(thread.is_alive())
+            self.assertIn("stream-line", paths.output_log.read_text(encoding="utf-8"))
+            thread.join(timeout=3)
+            self.assertFalse(thread.is_alive())
+            self.assertEqual(result["status"]["state"], "done")
 
 
 if __name__ == "__main__":

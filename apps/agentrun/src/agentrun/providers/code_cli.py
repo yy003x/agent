@@ -7,6 +7,8 @@ from __future__ import annotations
 import os
 import signal
 import subprocess
+import threading
+import time
 from pathlib import Path
 from typing import Any
 
@@ -40,6 +42,7 @@ class CodeCliProvider:
         }
 
         proc: subprocess.Popen[str] | None = None
+        stream_log: _StreamLog | None = None
         try:
             proc = subprocess.Popen(
                 argv,
@@ -51,16 +54,20 @@ class CodeCliProvider:
                 env=env,
                 start_new_session=True,
             )
+            stream_log = _StreamLog(paths, argv)
+            stream_log.attach(proc.stdout, proc.stderr)
+            _send_prompt(proc, prompt)
             provider_status["pid"] = proc.pid
             provider_status["pgid"] = os.getpgid(proc.pid)
             write_status(paths, request, RUNNING, provider_status=provider_status, message="cli running")
             event(paths, request, "status.changed", {"state": RUNNING, "transport": self.transport, "pid": proc.pid})
-            stdout, stderr = proc.communicate(prompt, timeout=timeout)
-        except subprocess.TimeoutExpired as exc:
-            stdout, stderr = _terminate_process_group(proc)
-            _write_log(paths, argv, _as_text(exc.stdout) + stdout, _as_text(exc.stderr) + stderr, "timeout")
+            returncode = _wait_process(proc, timeout)
+            stdout, stderr = stream_log.finish(f"returncode={returncode}")
+        except subprocess.TimeoutExpired:
+            _terminate_process_group(proc)
+            stdout, stderr = stream_log.finish("timeout") if stream_log else ("", "")
             event(paths, request, "provider.timeout", {"timeout_seconds": timeout})
-            error_excerpt = _output_excerpt(_as_text(exc.stdout) + stdout, _as_text(exc.stderr) + stderr)
+            error_excerpt = _output_excerpt(stdout, stderr)
             provider_status["error_excerpt"] = error_excerpt
             status = write_status(
                 paths,
@@ -72,14 +79,12 @@ class CodeCliProvider:
             )
             return {"status": status}
         except KeyboardInterrupt:
-            stdout, stderr = _terminate_process_group(proc)
-            _write_log(paths, argv, stdout, stderr, "cancelled")
+            _terminate_process_group(proc)
+            stdout, stderr = stream_log.finish("cancelled") if stream_log else ("", "")
             event(paths, request, "provider.cancelled", {"transport": self.transport})
             status = write_status(paths, request, CANCELLED, provider_status=provider_status, message="cli cancelled")
             return {"status": status}
 
-        returncode = proc.returncode if proc is not None else 1
-        _write_log(paths, argv, stdout, stderr, f"returncode={returncode}")
         event(paths, request, "provider.exited", {"returncode": returncode})
         provider_status["returncode"] = returncode
 
@@ -136,11 +141,74 @@ def _runtime_env(request: RunRequest, paths: RunPaths, raw: dict[str, Any] | Non
     return env
 
 
-def _write_log(paths: RunPaths, argv: list[str], stdout: str, stderr: str, status_line: str) -> None:
-    paths.output_log.write_text(
-        "\n".join([f"argv={argv!r}", status_line, "--- stdout ---", stdout, "--- stderr ---", stderr]) + "\n",
-        encoding="utf-8",
-    )
+class _StreamLog:
+    def __init__(self, paths: RunPaths, argv: list[str]) -> None:
+        self._fh = paths.output_log.open("w", encoding="utf-8")
+        self._lock = threading.Lock()
+        self._threads: list[threading.Thread] = []
+        self._stdout_parts: list[str] = []
+        self._stderr_parts: list[str] = []
+        self._closed = False
+        self._write(f"argv={argv!r}\nrunning\n--- stream ---\n")
+
+    def attach(self, stdout, stderr) -> None:
+        for label, pipe, parts in (
+            ("stdout", stdout, self._stdout_parts),
+            ("stderr", stderr, self._stderr_parts),
+        ):
+            if pipe is None:
+                continue
+            thread = threading.Thread(target=self._read_pipe, args=(label, pipe, parts), daemon=True)
+            thread.start()
+            self._threads.append(thread)
+
+    def finish(self, status_line: str) -> tuple[str, str]:
+        for thread in self._threads:
+            thread.join(timeout=2)
+        self._write(f"{status_line}\n")
+        self._close()
+        return "".join(self._stdout_parts), "".join(self._stderr_parts)
+
+    def _read_pipe(self, label: str, pipe, parts: list[str]) -> None:
+        try:
+            for chunk in pipe:
+                parts.append(chunk)
+                self._write(f"[{label}] {chunk}")
+        finally:
+            pipe.close()
+
+    def _write(self, text: str) -> None:
+        with self._lock:
+            if self._closed:
+                return
+            self._fh.write(text)
+            self._fh.flush()
+
+    def _close(self) -> None:
+        with self._lock:
+            if self._closed:
+                return
+            self._closed = True
+            self._fh.close()
+
+
+def _send_prompt(proc: subprocess.Popen[str], prompt: str) -> None:
+    if proc.stdin is None:
+        return
+    try:
+        proc.stdin.write(prompt)
+        proc.stdin.close()
+    except BrokenPipeError:
+        pass
+
+
+def _wait_process(proc: subprocess.Popen[str], timeout: int | None) -> int:
+    deadline = time.monotonic() + timeout if timeout else None
+    while proc.poll() is None:
+        if deadline and time.monotonic() >= deadline:
+            raise subprocess.TimeoutExpired(proc.args, timeout)
+        time.sleep(0.1)
+    return int(proc.returncode or 0)
 
 
 def _output_excerpt(stdout: str, stderr: str, max_lines: int = 8, max_chars: int = 1000) -> str:
@@ -163,27 +231,17 @@ def _failure_message(base: str, error_excerpt: str) -> str:
     return f"{base}\n{error_excerpt}" if error_excerpt else base
 
 
-def _terminate_process_group(proc: subprocess.Popen[str] | None) -> tuple[str, str]:
+def _terminate_process_group(proc: subprocess.Popen[str] | None) -> None:
     if proc is None:
-        return "", ""
+        return
     try:
         pgid = os.getpgid(proc.pid)
         os.killpg(pgid, signal.SIGINT)
         try:
-            stdout, stderr = proc.communicate(timeout=2)
-            return stdout or "", stderr or ""
-        except subprocess.TimeoutExpired as exc:
+            proc.wait(timeout=2)
+        except subprocess.TimeoutExpired:
             os.killpg(pgid, signal.SIGKILL)
-            stdout, stderr = proc.communicate()
-            return _as_text(exc.stdout) + (stdout or ""), _as_text(exc.stderr) + (stderr or "")
+            proc.wait()
     except ProcessLookupError:
-        stdout, stderr = proc.communicate()
-        return stdout or "", stderr or ""
-
-
-def _as_text(value: str | bytes | None) -> str:
-    if value is None:
-        return ""
-    if isinstance(value, bytes):
-        return value.decode("utf-8", errors="replace")
-    return value
+        if proc.poll() is None:
+            proc.wait()

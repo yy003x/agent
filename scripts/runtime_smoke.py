@@ -8,6 +8,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shlex
 import signal
 import subprocess
 import sys
@@ -105,7 +106,9 @@ def require_configured_profile(
     runtime: str,
     profile: str,
 ) -> dict[str, object]:
-    payload = cli.run_json(["config", "choices", "--project", args.project, "--all"], timeout=30)
+    command = ["config", "choices", "--project", args.project, "--all"]
+    emit_command_log(args, "配置校验命令", cli.command(command, as_json=True))
+    payload = cli.run_json(command, timeout=30)
     choices = payload.get("choices")
     if not isinstance(choices, list):
         raise SystemExit("AgentRun config choices 输出格式异常")
@@ -123,12 +126,15 @@ def emit_config_log(args: argparse.Namespace, profile_config: dict[str, object])
     if args.json:
         return
     detail = profile_config.get("detail")
-    command = ""
+    provider_command: list[str] = []
     if isinstance(detail, dict):
         command = str(detail.get("command") or detail.get("model") or "")
+        detail_args = detail.get("args")
+        if command:
+            provider_command = [command, *[str(item) for item in detail_args]] if isinstance(detail_args, list) else [command]
     provider = str(profile_config.get("provider_name") or "")
     suffix = f" provider={provider}" if provider else ""
-    suffix += f" command={command}" if command else ""
+    suffix += f" command={format_shell_command(provider_command)}" if provider_command else ""
     emit_runtime_log(
         args,
         "runtime 配置校验通过: "
@@ -171,6 +177,7 @@ def run_task(
     proc: subprocess.Popen[str] | None = None
     try:
         emit_runtime_log(args, f"准备启动 runtime run_id={run_id}")
+        emit_command_log(args, "task run 命令", cli.command(command))
         proc = cli.popen(command, capture=True)
         emit_runtime_log(args, "runtime 已启动,开始打印 AgentRun task 日志;按 Ctrl+C 取消 task 并终止 CLI runtime")
         watch_cmd = [
@@ -184,6 +191,7 @@ def run_task(
             "--poll-seconds",
             str(args.poll_seconds),
         ]
+        emit_command_log(args, "task watch 命令", cli.command(watch_cmd))
         code = cli.run(watch_cmd, timeout=timeout, isolate_interrupt=True)
         proc_code, stdout, stderr = cli.wait_process(proc, timeout=10)
         emit_process_output(stdout, stderr)
@@ -197,7 +205,9 @@ def run_task(
             if proc_code not in (0, 130, -signal.SIGINT):
                 emit_runtime_log(args, f"runtime 进程退出码: {proc_code}")
         if task_state(cli, args, run_id) not in {"done", "failed", "blocked", "cancelled"}:
-            cli.run(["task", "cancel", run_id, "--project", args.project], timeout=30, silent=True)
+            cancel_cmd = ["task", "cancel", run_id, "--project", args.project]
+            emit_command_log(args, "task cancel 命令", cli.command(cancel_cmd))
+            cli.run(cancel_cmd, timeout=30, silent=True)
         emit_task_result(cli, args, run_id)
         return 130
 
@@ -280,6 +290,14 @@ def emit_runtime_log(args: argparse.Namespace, message: str) -> None:
     print(f"[runtime-smoke {stamp}] {message}", flush=True)
 
 
+def emit_command_log(args: argparse.Namespace, label: str, command: list[str]) -> None:
+    emit_runtime_log(args, f"{label}: {format_shell_command(command)}")
+
+
+def format_shell_command(command: list[str]) -> str:
+    return " ".join(shlex.quote(str(part)) for part in command)
+
+
 def emit_tmux_result(cli: "AgentRunCLI", args: argparse.Namespace, run_id: str) -> None:
     result_file = cli.runs_dir / "sessions" / args.project / run_id / "result.json"
     print("")
@@ -337,6 +355,21 @@ class AgentRunCLI:
         self.json_output = json_output
         self.pythonpath = _agentrun_pythonpath()
 
+    def command(self, args: list[str], *, as_json: bool = False) -> list[str]:
+        cmd = [
+            sys.executable,
+            "-m",
+            "agentrun.cli.main",
+            "--conf-dir",
+            str(self.conf_dir),
+            "--runs-dir",
+            str(self.runs_dir),
+        ]
+        if as_json or self.json_output:
+            cmd.append("--json")
+        cmd.extend(args)
+        return cmd
+
     def run(
         self,
         args: list[str],
@@ -348,18 +381,7 @@ class AgentRunCLI:
     ) -> int:
         env = os.environ.copy()
         env["PYTHONPATH"] = str(self.pythonpath) + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
-        cmd = [
-            sys.executable,
-            "-m",
-            "agentrun.cli.main",
-            "--conf-dir",
-            str(self.conf_dir),
-            "--runs-dir",
-            str(self.runs_dir),
-        ]
-        if self.json_output:
-            cmd.append("--json")
-        cmd.extend(args)
+        cmd = self.command(args)
         capture = quiet_success or silent
         if isolate_interrupt:
             return self._run_isolated(cmd, env=env, timeout=timeout, capture=capture, silent=silent, args=args)
@@ -393,16 +415,7 @@ class AgentRunCLI:
     def popen(self, args: list[str], *, capture: bool) -> subprocess.Popen[str]:
         env = os.environ.copy()
         env["PYTHONPATH"] = str(self.pythonpath) + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
-        cmd = [
-            sys.executable,
-            "-m",
-            "agentrun.cli.main",
-            "--conf-dir",
-            str(self.conf_dir),
-            "--runs-dir",
-            str(self.runs_dir),
-            *args,
-        ]
+        cmd = self.command(args)
         return subprocess.Popen(
             cmd,
             cwd=ROOT,
@@ -441,17 +454,7 @@ class AgentRunCLI:
     def run_json(self, args: list[str], *, timeout: int | None) -> dict[str, object]:
         env = os.environ.copy()
         env["PYTHONPATH"] = str(self.pythonpath) + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
-        cmd = [
-            sys.executable,
-            "-m",
-            "agentrun.cli.main",
-            "--conf-dir",
-            str(self.conf_dir),
-            "--runs-dir",
-            str(self.runs_dir),
-            "--json",
-            *args,
-        ]
+        cmd = self.command(args, as_json=True)
         proc = subprocess.run(
             cmd,
             cwd=ROOT,
