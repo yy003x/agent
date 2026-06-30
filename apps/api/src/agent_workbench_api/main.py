@@ -125,7 +125,7 @@ def list_chat_sessions() -> dict:
 @app.post("/api/chat/sessions")
 def create_chat_session(payload: CreateSessionRequest) -> dict:
     try:
-        return workbench.create_session(payload.title, payload.runtime)
+        return workbench.create_session(payload.title, payload.runtime, payload.profile)
     except Exception as exc:  # noqa: BLE001
         raise _api_error(exc) from exc
 
@@ -262,12 +262,13 @@ def start_runtime_run(payload: StartRuntimeRequest) -> dict:
     try:
         config = workbench.workbench_config()
         runtime = workbench._valid_runtime(payload.runtime or config["runtime_provider"], config["runtime_provider"])
+        profile = workbench._profile_for_selection(config, runtime, payload.profile, "runtime_profile")
         return workbench.MAIN_RUNTIME.start_run(
             runtime,
             payload.prompt,
-            payload.command or workbench._command_for_runtime(config, runtime),
+            payload.command or workbench._command_for_runtime(config, runtime, profile),
             int(payload.timeout_seconds),
-            workbench._runtime_options_from_config(config),
+            workbench._runtime_options_from_config(config, runtime_profile=profile),
         )
     except Exception as exc:  # noqa: BLE001
         raise _api_error(exc) from exc

@@ -87,10 +87,10 @@ def save_workbench_config(data: dict) -> dict:
     return runtime_config_payload(config, validation=validation)
 
 
-def _runtime_options_from_config(config: dict) -> dict:
+def _runtime_options_from_config(config: dict, *, chat_profile: str | None = None, runtime_profile: str | None = None) -> dict:
     return {
-        "chat_profile": config["chat_profile"],
-        "runtime_profile": config["runtime_profile"],
+        "chat_profile": chat_profile or config["chat_profile"],
+        "runtime_profile": runtime_profile or config["runtime_profile"],
         "codex_no_alt_screen": config["codex_no_alt_screen"],
         "codex_bypass": config["codex_bypass"],
         "codex_sandbox": config["codex_sandbox"],
@@ -102,10 +102,11 @@ def _runtime_options_from_config(config: dict) -> dict:
     }
 
 
-def _command_for_runtime(config: dict, runtime: str) -> str | None:
-    if runtime == "cli" and config.get("runtime_profile") == "codex-cli":
+def _command_for_runtime(config: dict, runtime: str, profile: str | None = None) -> str | None:
+    selected_profile = profile or config.get("runtime_profile")
+    if runtime == "cli" and selected_profile == "codex-cli":
         return config["codex_command"]
-    if runtime == "cli" and config.get("runtime_profile") == "claude-cli":
+    if runtime == "cli" and selected_profile == "claude-cli":
         return config["claude_command"]
     return None
 
@@ -148,6 +149,11 @@ def _valid_profile_for_runtime(choices: list[dict], runtime: str, value: str, de
     if value in allowed:
         return value
     return _first_profile(choices, runtime, default_value)
+
+
+def _profile_for_selection(config: dict, runtime: str, value: str | None, default_key: str) -> str:
+    default_value = str(config.get(default_key) or "")
+    return _valid_profile_for_runtime(_runtime_choices(), runtime, str(value or default_value), default_value)
 
 
 def _validate_selected_profiles(config: dict) -> dict:

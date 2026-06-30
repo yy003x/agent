@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 class CreateSessionRequest(BaseModel):
     title: str = ""
     runtime: str | None = None
+    profile: str | None = None
 
 
 class DeleteSessionsRequest(BaseModel):
@@ -70,6 +71,7 @@ class CancelWorkflowRequest(BaseModel):
 
 class StartRuntimeRequest(BaseModel):
     runtime: str | None = None
+    profile: str | None = None
     prompt: str = "请输出一个简短状态。"
     command: str | None = None
     timeout_seconds: int = 1800

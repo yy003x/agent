@@ -16,6 +16,7 @@ from agent_workbench_api import file_browser
 from agent_workbench_api import health
 from agent_workbench_api.services.workbench_config import (
     _command_for_runtime,
+    _profile_for_selection,
     _runtime_options_from_config,
     runtime_config_payload,
     save_workbench_config,
@@ -70,9 +71,10 @@ def _load_events(session_id: str) -> list[dict]:
     return events
 
 
-def create_session(title: str = "", runtime: str | None = None) -> dict:
+def create_session(title: str = "", runtime: str | None = None, profile: str | None = None) -> dict:
     config = workbench_config()
     selected_runtime = _valid_user_runtime(runtime or config["chat_provider"], config["chat_provider"])
+    selected_profile = _profile_for_selection(config, selected_runtime, profile, "chat_profile")
     clean_title = str(title or "").strip()
     session_id = f"chat-{uuid.uuid4().hex[:12]}"
     path = _session_dir(session_id)
@@ -81,8 +83,9 @@ def create_session(title: str = "", runtime: str | None = None) -> dict:
         "session_id": session_id,
         "title": clean_title or "新会话",
         "runtime": selected_runtime,
-        "runtime_command": _command_for_runtime(config, selected_runtime),
-        "runtime_options": _runtime_options_from_config(config),
+        "runtime_profile": selected_profile,
+        "runtime_command": _command_for_runtime(config, selected_runtime, selected_profile),
+        "runtime_options": _runtime_options_from_config(config, chat_profile=selected_profile),
         "created_at": _now(),
         "updated_at": _now(),
     }
@@ -575,7 +578,8 @@ def _ensure_chat_runtime(session_id: str, startup_contract_path: Path,
 
     config = workbench_config()
     runtime = _valid_runtime(state.get("runtime") or config["chat_provider"], config["chat_provider"])
-    command = state.get("runtime_command") or _command_for_runtime(config, runtime)
+    profile = str(state.get("runtime_profile") or (state.get("runtime_options") or {}).get("chat_profile") or config["chat_profile"])
+    command = state.get("runtime_command") or _command_for_runtime(config, runtime, profile)
     runtime_options = state.get("runtime_options") or _runtime_options_from_config(config)
     runtime_meta = MAIN_RUNTIME.start_chat_worker(
         session_id=session_id,
@@ -600,7 +604,8 @@ def _run_direct_chat_turn(session_id: str, turn: dict) -> None:
     state = _read_json(path / "state.json", {})
     config = workbench_config()
     runtime = _valid_runtime(state.get("runtime") or config["chat_provider"], config["chat_provider"])
-    command = state.get("runtime_command") or _command_for_runtime(config, runtime)
+    profile = str(state.get("runtime_profile") or (state.get("runtime_options") or {}).get("chat_profile") or config["chat_profile"])
+    command = state.get("runtime_command") or _command_for_runtime(config, runtime, profile)
     runtime_options = state.get("runtime_options") or _runtime_options_from_config(config)
     runtime_meta = MAIN_RUNTIME.run_chat_turn(
         session_id=turn["turn_id"],
@@ -1188,6 +1193,8 @@ def _settings_summary(config: dict, health_payload: dict) -> dict:
     return {
         "chat_provider": config.get("chat_provider"),
         "runtime_provider": config.get("runtime_provider"),
+        "chat_profile": config.get("chat_profile"),
+        "runtime_profile": config.get("runtime_profile"),
         "chat_provider_label": _provider_label(config.get("chat_provider")),
         "runtime_provider_label": _provider_label(config.get("runtime_provider")),
         "mode": "AgentRun provider task",
