@@ -20,6 +20,7 @@ DEFAULT_PROFILES = {
     "cli": "codex-cli",
     "api": "api-openai-gpt-4o-mini",
 }
+DEFAULT_TMUX_WAIT_SECONDS = 30
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -65,6 +66,7 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser.add_argument("--cwd", default=str(ROOT), help="runtime 执行工作目录")
     parser.add_argument("--run-id", default="", help="指定 run_id;默认自动生成")
     parser.add_argument("--deadline-seconds", type=int, default=300, help="cli/api task 超时时间")
+    parser.add_argument("--tmux-wait-seconds", type=int, default=DEFAULT_TMUX_WAIT_SECONDS, help="tmux 投递后静默等待秒数")
     parser.add_argument("--force", action="store_true", help="透传 AgentRun --force")
     parser.add_argument("--json", action="store_true", help="透传 AgentRun --json")
     return parser.parse_args(argv)
@@ -143,7 +145,19 @@ def run_tmux(
         started = True
 
         send_cmd = ["session", "send", run_id, "--project", args.project, "--text", prompt]
-        return cli.run(send_cmd, timeout=30, quiet_success=quiet_success)
+        code = cli.run(send_cmd, timeout=30, quiet_success=quiet_success)
+        if code != 0:
+            return code
+
+        wait_seconds = max(int(args.tmux_wait_seconds), 0)
+        if wait_seconds > 0:
+            watch_cmd = ["session", "watch", run_id, "--project", args.project, "--seconds", str(wait_seconds)]
+            code = cli.run(watch_cmd, timeout=wait_seconds + 15, quiet_success=quiet_success)
+            if code != 0:
+                return code
+        if not args.json:
+            print("OK: tmux runtime smoke 已执行并清理")
+        return 0
     finally:
         if started:
             cli.run(["session", "stop", run_id, "--project", args.project], timeout=30, silent=True)
