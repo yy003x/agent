@@ -88,7 +88,6 @@ check "scripts/workbench_service.py 存在" "test -f scripts/workbench_service.p
 check "scripts/model_backend_smoke.py 存在" "test -f scripts/model_backend_smoke.py"
 check "scripts/workbench_smoke.py 存在" "test -f scripts/workbench_smoke.py"
 check "scripts/runtime_smoke.py 存在" "test -f scripts/runtime_smoke.py"
-check "scripts/tmux_project_summary.sh 存在" "test -f scripts/tmux_project_summary.sh"
 check "apps/scheduler/jobs.json 存在" "test -f apps/scheduler/jobs.json"
 check "无旧版本/历史包袱残留" "command -v rg && ! rg -n 'apps/workbench|apps/agent(/|$)|legacy-tmux|replace-legacy-tmux|/api/runtime/tmux|legacy|兼容|旧版|旧实现|旧启动|旧命令|历史|旧|迁移|P6|migration|fallback|allowed_providers' Makefile scripts apps skills design rules requirements.txt AGENTS.md memory --glob '!scripts/validate.sh' --glob '!apps/web/package-lock.json' --glob '!apps/web/node_modules/**' --glob '!apps/web/dist/**'"
 
@@ -101,7 +100,6 @@ check "workbench_service.py 语法正常" "python3 -m py_compile scripts/workben
 check "model_backend_smoke.py 语法正常" "python3 -m py_compile scripts/model_backend_smoke.py"
 check "workbench_smoke.py 语法正常" "python3 -m py_compile scripts/workbench_smoke.py"
 check "runtime_smoke.py 语法正常" "python3 -m py_compile scripts/runtime_smoke.py"
-check "tmux_project_summary.sh 语法正常" "bash -n scripts/tmux_project_summary.sh"
 check "content_runtime.py 语法正常" "python3 -m py_compile skills/content-generate/scripts/content_runtime.py"
 check "agent skill 脚手架语法正常" "python3 -m py_compile skills/agent-skill-create/scripts/scaffold_skill.py"
 check "scheduler.py 语法正常" "python3 -m py_compile apps/scheduler/scheduler.py"
@@ -163,7 +161,7 @@ check "agentrun doctor 可执行" "run_agentrun --json doctor"
 check "agentrun profiles 可读取" "run_agentrun --json profiles"
 check "agentrun cli 配置可验证" "run_agentrun config validate --project agent --provider cli --profile codex-cli --json"
 check "agentrun 已验证 choices 可读取" "run_agentrun config choices --project agent --json"
-check "agentrun runtime smoke 通过" "python3 scripts/runtime_smoke.py --json"
+check "agentrun runtime smoke 通过" "python3 scripts/runtime_smoke.py --runtime all --json"
 
 if [ "$MODE" = "e2e" ]; then
   echo ""
