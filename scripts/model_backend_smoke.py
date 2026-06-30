@@ -45,18 +45,16 @@ def chat_url(base_url: str, provider: str | None = None) -> str:
 
 
 def default_model_configs() -> list[dict[str, Any]]:
-    openrouter_url = chat_url(os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"), "openrouter")
-    openrouter_title = os.getenv("OPENROUTER_TITLE", "agent-model-test")
     return [
         {
             "name": os.getenv("OPENROUTER_NAME", "openrouter"),
             "provider": "openrouter",
-            "url": openrouter_url,
+            "url": chat_url("https://openrouter.ai/api/v1", "openrouter"),
             "api_key_env": "OPENROUTER_API_KEY",
-            "model": os.getenv("OPENROUTER_MODEL", "z-ai/glm-5.1"),
+            "model": "z-ai/glm-5.1",
             "headers": {
-                "HTTP-Referer": "${OPENROUTER_HTTP_REFERER}",
-                "X-OpenRouter-Title": openrouter_title,
+                "HTTP-Referer": "http://localhost",
+                "X-OpenRouter-Title": "agent-runtime",
             },
         },
     ]

@@ -30,8 +30,6 @@ defaults:
     OPENROUTER_MODEL: z-ai/glm-5.1
   env_passthrough:
     - OPENROUTER_API_KEY
-    - OPENROUTER_HTTP_REFERER
-    - OPENROUTER_TITLE
 
 codex:
   command: codex

@@ -110,13 +110,11 @@ BACKEND_SPECS: list[dict[str, Any]] = [
         "protocol": "openai",
         "task": "text",
         "key_env": "OPENROUTER_API_KEY",
-        "base_url_env": "OPENROUTER_BASE_URL",
-        "base_url": "https://openrouter.ai/api",
-        "model_env": "OPENROUTER_MODEL",
-        "model": "openai/gpt-4o-mini",
+        "base_url": "https://openrouter.ai/api/v1",
+        "model": "z-ai/glm-5.1",
         "headers": {
-            "HTTP-Referer": "OPENROUTER_HTTP_REFERER",
-            "X-OpenRouter-Title": "OPENROUTER_TITLE",
+            "HTTP-Referer": "http://localhost",
+            "X-OpenRouter-Title": "agent-runtime",
         },
     },
     {
@@ -172,9 +170,11 @@ BACKEND_SPECS: list[dict[str, Any]] = [
 
 def _resolved_public(spec: dict[str, Any]) -> dict[str, Any]:
     key_env = spec["key_env"]
-    base_url = _env(spec["base_url_env"], spec["base_url"])
+    base_url_env = str(spec.get("base_url_env") or "")
+    base_url = _env(base_url_env, spec["base_url"]) if base_url_env else str(spec["base_url"])
     provider = spec["provider"]
-    model = _env(spec["model_env"], spec["model"])
+    model_env = str(spec.get("model_env") or "")
+    model = _env(model_env, spec["model"]) if model_env else str(spec["model"])
     key_set = bool(_secret_env(key_env))
     return {
         "id": spec["id"],
@@ -189,7 +189,7 @@ def _resolved_public(spec: dict[str, Any]) -> dict[str, Any]:
         "base_url": base_url,
         "chat_url": chat_url(base_url, provider),
         "model": model,
-        "model_env": spec["model_env"],
+        "model_env": model_env,
     }
 
 
@@ -213,8 +213,16 @@ def resolve_model_backend(task: str = "text", backend_id: str | None = None) -> 
     if not api_key:
         raise RuntimeError(f"缺少环境变量 {public['key_env']}")
     headers = {}
-    for header, env_name in dict(task_candidates[0].get("headers", {})).items():
-        value = _env(env_name)
+    for header, value_config in dict(task_candidates[0].get("headers", {})).items():
+        value = _header_value(str(value_config))
         if value:
             headers[header] = value
     return {**public, "api_key": api_key, "headers": headers}
+
+
+def _header_value(value: str) -> str:
+    if value.startswith("${") and value.endswith("}"):
+        return _env(value[2:-1])
+    if value.isidentifier() and value.upper() == value:
+        return _env(value)
+    return value

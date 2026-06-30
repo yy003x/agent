@@ -3,8 +3,8 @@ openrouter-openai:
   base_url: https://openrouter.ai/api/v1
   api_key_env: OPENROUTER_API_KEY
   headers:
-    HTTP-Referer: ${OPENROUTER_HTTP_REFERER}
-    X-OpenRouter-Title: ${OPENROUTER_TITLE}
+    HTTP-Referer: http://localhost
+    X-OpenRouter-Title: agent-runtime
   models:
     glm-5.1:
       profile: api-openrouter-openai-glm-5.1
@@ -18,8 +18,8 @@ openrouter-anthropic:
   api_key_header: Authorization
   api_key_prefix: "Bearer "
   headers:
-    HTTP-Referer: ${OPENROUTER_HTTP_REFERER}
-    X-OpenRouter-Title: ${OPENROUTER_TITLE}
+    HTTP-Referer: http://localhost
+    X-OpenRouter-Title: agent-runtime
   models:
     glm-5.1:
       profile: api-openrouter-anthropic-glm-5.1
