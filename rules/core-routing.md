@@ -46,6 +46,71 @@
 
 ---
 
+## Skill / App 实现归属规则
+
+新增或重构本地能力时，先判定实现 owner，再写代码。不要只按文件大小决定归属；核心标准是“这是某个 skill 的执行细节，还是可被多入口复用的应用能力”。
+
+### `skills/` 放什么
+
+`skills/<name>/` 负责触发条件、执行流程、门禁、输出契约和少量 skill-local 脚本。
+
+脚本放在 `skills/<name>/scripts/` 需同时满足：
+
+- 只服务当前 skill，复制该 skill 时脚本应该一起带走。
+- 主要表达该 skill 的执行细节，而不是全局领域能力。
+- 没有独立 API、服务生命周期、状态模型或长期运行日志。
+- 配置少，通常由命令参数或少量环境变量传入。
+- 测试可由该 skill 的 smoke / validate 覆盖。
+- 复制整个 `skills/<name>/` 到别处时，脚本语义仍完整。
+
+### `apps/` 放什么
+
+`apps/<app>/` 负责真实应用能力、领域模型、CLI/API、配置、状态目录、文档和测试。skill 可以调用 app，但不应把大型 app 实现塞进 `skills/`。
+
+满足以下任意 2 条就考虑抽到 `apps/`；满足 3 条以上默认应抽到 `apps/`：
+
+- 被 2 个以上入口调用，例如 API、workflow、scheduler、Makefile、CLI 或多个 skill。
+- 有独立状态目录、运行日志或产物目录，例如 `runs/`、`workspace/`、`outputs/`。
+- 有独立配置文件、较多环境变量或需要配置校验。
+- 代码需要分层，例如 `cli.py`、`service.py`、`models.py`、`storage.py`、`diagnostics.py`。
+- 有重依赖，例如 LanceDB、FastAPI、APScheduler、模型 SDK、媒体处理、外部 CLI。
+- 需要独立单测、doctor、smoke 或可观测诊断命令。
+- 需要被 API、workflow 或 scheduler 稳定调用。
+- 出错时需要独立排障，而不是只看某个 skill 的步骤说明。
+
+推荐应用目录结构：
+
+```text
+apps/<app>/
+├── app.json
+├── bin/
+├── conf/
+├── docs/
+├── src/<python_package>/
+└── tests/
+```
+
+### `scripts/` 放什么
+
+根目录 `scripts/` 只保留项目级胶水：
+
+- 总验证入口，例如 `scripts/validate.sh`。
+- 过渡 wrapper 或开发入口。
+- 跨多个 app 的临时编排脚本。
+
+长期业务实现、领域 runtime、状态同步工具、服务管理器和复杂诊断能力不应长期堆在根 `scripts/`。
+
+### 可移植性规则
+
+保持 skill 可移植性时按两层处理：
+
+- 轻量能力：脚本随 `skills/<name>/` 走。
+- 大型能力：实现抽到 `apps/<app>/`，skill 作为薄调用层，并在 `SKILL.md` 中声明依赖和稳定 CLI/API。
+
+skill 调用 app 时优先走稳定 CLI 或 API；只有 app 内部模块明确公开为 SDK 时，才从 skill 脚本直接 import app 内部包。
+
+---
+
 ## 默认行为
 
 ### workbench-chat
