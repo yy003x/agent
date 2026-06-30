@@ -252,6 +252,16 @@ class CliCompatibilityTest(unittest.TestCase):
             self.assertEqual(proc.returncode, 0, proc.stderr)
             self.assertTrue(read_json_from_text(proc.stdout)["ok"])
 
+    def test_session_watch_help_available(self) -> None:
+        proc = subprocess.run(
+            [sys.executable, "-m", "agentrun.cli.main", "session", "watch", "--help"],
+            capture_output=True,
+            text=True,
+            env={**os.environ, "PYTHONPATH": str(_REPO)},
+        )
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("--seconds", proc.stdout)
+
 
 class ContractVersionTest(unittest.TestCase):
     def test_mismatch_fails_fast(self) -> None:

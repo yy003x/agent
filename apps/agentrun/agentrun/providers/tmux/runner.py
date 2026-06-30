@@ -550,6 +550,10 @@ class TmuxProvider:
             _unregister(pane_id)
 
     def _validate_session_name(self) -> None:
+        if not self.session.strip():
+            raise TmuxError("tmux_session_name 不能为空")
+        if self.session.strip().isdigit():
+            raise TmuxError(f"tmux_session_name 不能是纯数字: {self.session}")
         if "{" in self.session or "}" in self.session:
             raise TmuxError("tmux_session_name 必须是固定名,不能是模板")
 

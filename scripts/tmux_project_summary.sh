@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# AgentRun tmux smoke:通过 AgentRun 启动后台 tmux session、投递一句话并监控日志。
+# AgentRun tmux smoke:通过 AgentRun 启动后台 tmux session、投递一句话并调用 AgentRun 监控。
 
 set -euo pipefail
 
@@ -82,8 +82,11 @@ run_agentrun() {
     "$PYTHON_BIN" -m agentrun.cli.main \
     --conf-dir "$CONF_DIR" \
     --runs-dir "$RUNS_DIR" \
-    --json \
     "$@"
+}
+
+run_agentrun_json() {
+  run_agentrun --json "$@"
 }
 
 json_get() {
@@ -125,66 +128,13 @@ raise SystemExit(0 if data.get("ok") else 1)
 PY
 }
 
-print_log_delta() {
-  local previous="$1"
-  local current="$2"
-  PREVIOUS_LOG="$previous" CURRENT_LOG="$current" "$PYTHON_BIN" - <<'PY'
-import os
-
-previous = os.environ.get("PREVIOUS_LOG", "")
-current = os.environ.get("CURRENT_LOG", "")
-if current.startswith(previous):
-    print(current[len(previous):], end="")
-elif current != previous:
-    print("\n--- log snapshot ---")
-    print(current, end="" if current.endswith("\n") else "\n")
-PY
-}
-
-validate_tmux_session_name() {
-  local value="$1"
-  if [ -z "$value" ]; then
-    echo "AgentRun 返回的 tmux session 为空。" >&2
-    exit 1
-  fi
-  if [[ "$value" =~ ^[0-9]+$ ]]; then
-    echo "AgentRun 返回的 tmux session 不能是纯数字：$value" >&2
-    exit 1
-  fi
-}
-
-monitor_logs() {
+watch_session() {
   local run_id="$1"
-  local pane_id="$2"
-  local started="$SECONDS"
-  local previous=""
-
-  echo ""
-  echo "开始通过 AgentRun 监控 tmux 日志。按 Ctrl-C 只停止监控，不杀 tmux。"
-  echo ""
-
-  trap 'echo; echo "已停止监控，tmux 会话仍在后台。"; exit 130' INT TERM
-  while true; do
-    status_json="$(run_agentrun session status "$run_id" --project "$PROJECT" || true)"
-    classification="$(printf '%s' "$status_json" | json_get classification)"
-    logs_json="$(run_agentrun session logs "$run_id" --project "$PROJECT" --tail 120 || true)"
-    current="$(printf '%s' "$logs_json" | json_get content)"
-    print_log_delta "$previous" "$current"
-    previous="$current"
-
-    if [ "$MONITOR_SECONDS" != "0" ] && [ $((SECONDS - started)) -ge "$MONITOR_SECONDS" ]; then
-      echo ""
-      echo "监控时间到，tmux pane 仍在后台：$pane_id"
-      break
-    fi
-    if [ "$classification" = "orphaned" ] || [ "$classification" = "done" ] || [ "$classification" = "failed" ]; then
-      echo ""
-      echo "AgentRun 状态：$classification"
-      break
-    fi
-    sleep 1
-  done
-  trap - INT TERM
+  local args=(session watch "$run_id" --project "$PROJECT" --tail 120)
+  if [ "$MONITOR_SECONDS" != "0" ]; then
+    args+=(--seconds "$MONITOR_SECONDS")
+  fi
+  run_agentrun "${args[@]}"
 }
 
 echo "project: $PROJECT"
@@ -201,21 +151,16 @@ dry-run，不会启动 tmux。
 实际执行会通过 AgentRun 运行：
   agentrun session start --project "$PROJECT" --profile "$PROFILE" --run-id "$RUN_ID" --cwd "$ROOT_DIR" --force
   agentrun session send "$RUN_ID" --project "$PROJECT" --text "$PROMPT"
-  agentrun session logs "$RUN_ID" --project "$PROJECT" --tail 120
+  agentrun session watch "$RUN_ID" --project "$PROJECT" --tail 120
 
 其中 session start 会使用 AgentRun tmux profile 的默认参数，等待 TUI 输出稳定后返回。
 EOF
   exit 0
 fi
 
-if ! command -v tmux >/dev/null 2>&1; then
-  echo "tmux 不可用，请先安装 tmux。" >&2
-  exit 1
-fi
-
 echo ""
 echo "验证 AgentRun tmux profile..."
-validate_json="$(run_agentrun config validate --project "$PROJECT" --profile "$PROFILE")"
+validate_json="$(run_agentrun_json config validate --project "$PROJECT" --profile "$PROFILE")"
 if ! printf '%s' "$validate_json" | json_ok; then
   echo "profile 验证失败：" >&2
   printf '%s\n' "$validate_json" >&2
@@ -223,16 +168,15 @@ if ! printf '%s' "$validate_json" | json_ok; then
 fi
 
 echo "通过 AgentRun 启动后台 tmux session..."
-start_json="$(run_agentrun session start --project "$PROJECT" --profile "$PROFILE" --run-id "$RUN_ID" --cwd "$ROOT_DIR" --force)"
+start_json="$(run_agentrun_json session start --project "$PROJECT" --profile "$PROFILE" --run-id "$RUN_ID" --cwd "$ROOT_DIR" --force)"
 tmux_session="$(printf '%s' "$start_json" | json_get session)"
 window_name="$(printf '%s' "$start_json" | json_get window_name)"
-pane_id="$(printf '%s' "$start_json" | json_get pane_id)"
+attach="$(printf '%s' "$start_json" | json_get attach)"
 ready="$(printf '%s' "$start_json" | json_get ready)"
 ready_reason="$(printf '%s' "$start_json" | json_get ready_reason)"
-validate_tmux_session_name "$tmux_session"
 
 echo "通过 AgentRun 投递 prompt..."
-if ! send_json="$(run_agentrun session send "$RUN_ID" --project "$PROJECT" --text "$PROMPT")"; then
+if ! send_json="$(run_agentrun_json session send "$RUN_ID" --project "$PROJECT" --text "$PROMPT")"; then
   echo "prompt 投递失败：" >&2
   printf '%s\n' "$send_json" >&2
   exit 1
@@ -243,22 +187,21 @@ cat <<EOF
 已通过 AgentRun 投递到后台 tmux。
 tmux_session: $tmux_session
 tmux_window: $window_name
-pane_id: $pane_id
 ready: $ready
 ready_reason: $ready_reason
 
 tmux 常用命令：
   tmux ls
-  tmux attach -t "$tmux_session"
+  $attach
   tmux list-windows -t "$tmux_session"
-  tmux capture-pane -p -t "$pane_id" -S -120
   tmux kill-session -t "$tmux_session"
 
 AgentRun 常用命令：
   PYTHONPATH=apps/agentrun python3 -m agentrun.cli.main --conf-dir config/agentrun --runs-dir runs/agentrun --json session status "$RUN_ID" --project "$PROJECT"
   PYTHONPATH=apps/agentrun python3 -m agentrun.cli.main --conf-dir config/agentrun --runs-dir runs/agentrun --json session logs "$RUN_ID" --project "$PROJECT" --tail 120
+  PYTHONPATH=apps/agentrun python3 -m agentrun.cli.main --conf-dir config/agentrun --runs-dir runs/agentrun session watch "$RUN_ID" --project "$PROJECT" --tail 120
 EOF
 
 if [ "$MONITOR" -eq 1 ]; then
-  monitor_logs "$RUN_ID" "$pane_id"
+  watch_session "$RUN_ID"
 fi

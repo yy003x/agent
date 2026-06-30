@@ -4,10 +4,13 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import time
 from typing import Any
 
 from agentrun.core.run import SESSION, TASK
 from agentrun.kernel import AgentRuntime
+
+_NO_EMIT = object()
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -80,6 +83,12 @@ def main(argv: list[str] | None = None) -> int:
     p_session_logs.add_argument("run_id")
     p_session_logs.add_argument("--project", default=None)
     p_session_logs.add_argument("--tail", type=int, default=120)
+    p_session_watch = session_sub.add_parser("watch")
+    p_session_watch.add_argument("run_id")
+    p_session_watch.add_argument("--project", default=None)
+    p_session_watch.add_argument("--tail", type=int, default=120)
+    p_session_watch.add_argument("--seconds", type=int, default=0)
+    p_session_watch.add_argument("--poll-seconds", type=float, default=1.0)
     p_session_interrupt = session_sub.add_parser("interrupt")
     p_session_interrupt.add_argument("run_id")
     p_session_interrupt.add_argument("--project", default=None)
@@ -101,6 +110,8 @@ def main(argv: list[str] | None = None) -> int:
     except Exception as exc:  # noqa: BLE001 CLI 边界统一成错误输出
         _emit({"ok": False, "error": str(exc), "error_type": type(exc).__name__}, args.json)
         return 1
+    if result is _NO_EMIT:
+        return 0
     _emit(result, args.json)
     return 0
 
@@ -163,6 +174,9 @@ def _dispatch(rt: AgentRuntime, args: argparse.Namespace) -> Any:
             )
         if args.session_cmd == "logs":
             return rt.logs(args.run_id, project_id=args.project, run_type=SESSION, tail=args.tail)
+        if args.session_cmd == "watch":
+            _watch_session(rt, args)
+            return _NO_EMIT
         if args.session_cmd == "interrupt":
             return rt.interrupt(args.run_id, project_id=args.project, run_type=SESSION)
         if args.session_cmd == "stop":
@@ -170,6 +184,75 @@ def _dispatch(rt: AgentRuntime, args: argparse.Namespace) -> Any:
     if args.cmd == "prune":
         return rt.prune(dry_run=not args.apply)
     raise ValueError(f"未知命令: {args.cmd}")
+
+
+def _watch_session(rt: AgentRuntime, args: argparse.Namespace) -> None:
+    started = time.monotonic()
+    previous = ""
+    poll = max(float(args.poll_seconds or 1.0), 0.1)
+    terminal = {"orphaned", "done", "failed", "blocked", "cancelled"}
+
+    if not args.json:
+        print("")
+        print("开始通过 AgentRun 监控 session 日志。按 Ctrl-C 只停止监控，不停止 session。")
+        print("", flush=True)
+
+    while True:
+        status = rt.status(args.run_id, project_id=args.project, run_type=SESSION)
+        classification = str(status.get("classification") or "")
+        logs = rt.logs(args.run_id, project_id=args.project, run_type=SESSION, tail=args.tail)
+        current = str(logs.get("content") or "")
+        delta = _log_delta(previous, current)
+        previous = current
+
+        if args.json:
+            print(
+                json.dumps(
+                    {
+                        "type": "watch.tick",
+                        "run_id": args.run_id,
+                        "classification": classification,
+                        "content_delta": delta,
+                    },
+                    ensure_ascii=False,
+                ),
+                flush=True,
+            )
+        elif delta:
+            print(delta, end="", flush=True)
+
+        elapsed = time.monotonic() - started
+        if args.seconds and elapsed >= args.seconds:
+            _watch_done(args, classification, elapsed, "seconds_elapsed")
+            return
+        if classification in terminal:
+            _watch_done(args, classification, elapsed, "terminal_state")
+            return
+        time.sleep(poll)
+
+
+def _watch_done(args: argparse.Namespace, classification: str, elapsed: float, reason: str) -> None:
+    payload = {
+        "type": "watch.done",
+        "run_id": args.run_id,
+        "classification": classification,
+        "reason": reason,
+        "elapsed_seconds": round(elapsed, 3),
+    }
+    if args.json:
+        print(json.dumps(payload, ensure_ascii=False), flush=True)
+        return
+    print("")
+    print(f"AgentRun 监控结束：{classification or 'unknown'} ({reason})", flush=True)
+
+
+def _log_delta(previous: str, current: str) -> str:
+    if current.startswith(previous):
+        return current[len(previous):]
+    if current != previous:
+        suffix = "" if current.endswith("\n") else "\n"
+        return "\n--- log snapshot ---\n" + current + suffix
+    return ""
 
 
 def _emit(data: Any, as_json: bool) -> None:

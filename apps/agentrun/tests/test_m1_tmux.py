@@ -375,6 +375,11 @@ Path(os.environ["AGENTRUN_DONE_FILE"]).touch()
 
 
 class TmuxReadyGateTest(unittest.TestCase):
+    def test_numeric_tmux_session_name_is_rejected_by_provider(self) -> None:
+        provider = TmuxProvider(_profile("codex", "1"))
+        with self.assertRaisesRegex(TmuxError, "不能是纯数字"):
+            provider._validate_session_name()
+
     def test_command_sh_includes_static_env_and_passthrough(self) -> None:
         with tempfile.TemporaryDirectory() as t:
             d = Path(t)
