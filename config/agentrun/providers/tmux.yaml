@@ -1,5 +1,5 @@
 defaults:
-  session_name: agentrun
+  session_name: agentrun-agent
   prompt_delivery: paste
   tmux_input_mode: raw
   paste_bracketed: true

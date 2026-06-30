@@ -104,14 +104,14 @@ class TmuxProvider:
         write_status(paths, request, RUNNING, message="tmux task running")
         event(paths, request, "status.changed", {"state": RUNNING, "transport": self.transport})
 
-        window_id, pane_id = self._open(window_name, cwd)
+        command_sh = self._write_command_sh(paths, request, done_file, prepared_prompt.prompt_file if prepared_prompt else None)
+        window_id, pane_id = self._open(window_name, cwd, command_sh)
         self._lock_window(window_id)
         self._tmux(["pipe-pane", "-t", pane_id, f"cat >> {shlex.quote(str(paths.output_log))}"], check=False)
         identity = (self.session, window_id, window_name, pane_id)
         _register(identity)
 
         try:
-            command_sh = self._write_command_sh(paths, request, done_file, prepared_prompt.prompt_file if prepared_prompt else None)
             self._write_running_status(
                 paths,
                 request,
@@ -119,7 +119,6 @@ class TmuxProvider:
                 message="tmux task running",
                 command_file=command_sh,
             )
-            self._send_line(pane_id, f"exec {shlex.quote(str(command_sh))}")
             if self.prompt_delivery == "paste" and prepared_prompt is not None:
                 submitted = self._ensure_prompt_submitted(request, paths, done_file, prepared_prompt, identity)
                 if not submitted:
@@ -282,13 +281,12 @@ class TmuxProvider:
         self._ensure_trusted_cwd(cwd, request)
         done_file = paths.run_dir / "done"
         window_name = f"agentrun-{request.run_id}"
-        window_id, pane_id = self._open(window_name, cwd)
+        command_sh = self._write_command_sh(paths, request, done_file, None)
+        window_id, pane_id = self._open(window_name, cwd, command_sh)
         self._lock_window(window_id)
         self._tmux(["pipe-pane", "-t", pane_id, f"cat >> {shlex.quote(str(paths.output_log))}"], check=False)
         identity = (self.session, window_id, window_name, pane_id)
-        _register(identity)
         try:
-            command_sh = self._write_command_sh(paths, request, done_file, None)
             self._write_running_status(
                 paths,
                 request,
@@ -296,7 +294,6 @@ class TmuxProvider:
                 message="tmux session running",
                 command_file=command_sh,
             )
-            self._send_line(pane_id, f"exec {shlex.quote(str(command_sh))}")
         except Exception:
             self._close(pane_id, identity)
             raise
@@ -365,12 +362,15 @@ class TmuxProvider:
         }
 
     # ---------- tmux 原语 ----------
-    def _open(self, window_name: str, cwd: Path) -> tuple[str, str]:
+    def _open(self, window_name: str, cwd: Path, command_file: Path | None = None) -> tuple[str, str]:
         fmt = ["-P", "-F", "#{window_id} #{pane_id}"]
+        command = ["/bin/sh"]
+        if command_file is not None:
+            command = [str(command_file)]
         if self._session_exists():
-            out = self._tmux(["new-window", "-d", "-t", self.session, "-n", window_name, *fmt, "-c", str(cwd), "/bin/sh"]).stdout
+            out = self._tmux(["new-window", "-d", "-t", self.session, "-n", window_name, *fmt, "-c", str(cwd), *command]).stdout
         else:
-            out = self._tmux(["new-session", "-d", "-s", self.session, "-n", window_name, *fmt, "-c", str(cwd), "/bin/sh"]).stdout
+            out = self._tmux(["new-session", "-d", "-s", self.session, "-n", window_name, *fmt, "-c", str(cwd), *command]).stdout
         parts = out.strip().split()
         if len(parts) != 2:
             raise TmuxError(f"tmux 返回异常: {out!r}")
@@ -381,7 +381,7 @@ class TmuxProvider:
         self._tmux(["set-option", "-w", "-t", window_id, "allow-rename", "off"], check=False)
 
     def _send_line(self, pane_id: str, line: str) -> None:
-        self._tmux(["send-keys", "-t", pane_id, "-l", line], check=False)
+        self._paste(pane_id, line, bracketed=False)
         self._tmux(["send-keys", "-t", pane_id, "C-m"], check=False)
 
     def _paste(self, pane_id: str, text: str, bracketed: bool = False) -> None:

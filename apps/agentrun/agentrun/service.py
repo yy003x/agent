@@ -259,7 +259,17 @@ class RuntimeService:
         status = read_status(paths)
         if status is None:
             raise ValueError(f"run 不存在: {run_id}")
-        status["classification"] = self.registry.classify(run_id)
+        if request and request.get("provider") == "tmux" and run_type == SESSION:
+            try:
+                provider = self._provider_for(self._resolve_profile(str(request.get("provider_profile") or ""), project_id=project))
+                provider_status = provider.session_status(paths)
+                status["provider_live_status"] = provider_status
+                status["classification"] = "running" if provider_status.get("alive") else "orphaned"
+            except Exception as exc:  # noqa: BLE001 status 不应因实时探测失败而不可读
+                status["classification"] = self.registry.classify(run_id)
+                status["provider_live_error"] = str(exc)
+        else:
+            status["classification"] = self.registry.classify(run_id)
         return status
 
     def logs(
