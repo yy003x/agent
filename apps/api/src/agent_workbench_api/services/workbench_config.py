@@ -1,9 +1,9 @@
 """Runtime configuration helpers for the workbench API."""
 from __future__ import annotations
 
-from apps.agentrun import model_backends
+from agentrun_workbench import model_backends
 
-from apps.api.services.workbench_support import (
+from agent_workbench_api.services.workbench_support import (
     CHAT_RUNTIME,
     CONFIG_PATH,
     MAIN_RUNTIME,

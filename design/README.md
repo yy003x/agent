@@ -34,11 +34,11 @@
 
 ```text
 apps/
-├── api/          # FastAPI API
-├── web/          # React + TypeScript Web UI
-├── workflows/    # 业务 workflow
-├── scheduler/    # APScheduler 本地任务
-└── agentrun/     # AgentRun runtime 和工作台适配
+├── api/          # FastAPI API，源码在 src/agent_workbench_api/
+├── web/          # React + TypeScript Web UI，源码在 src/
+├── workflows/    # 业务 workflow，源码在 src/agent_workflows/
+├── scheduler/    # APScheduler 本地任务，源码在 src/agent_scheduler/
+└── agentrun/     # AgentRun runtime 和工作台适配，源码在 src/agentrun/ 与 src/agentrun_workbench/
 ```
 
 新增功能必须放入当前应用目录或对应的 skill/runtime owner。
@@ -93,8 +93,8 @@ bash scripts/validate.sh --e2e
 Runtime 单独验证：
 
 ```bash
-PYTHONPATH=apps/agentrun python3 -m agentrun.cli.main --conf-dir config/agentrun --runs-dir runs/agentrun doctor --json
-PYTHONPATH=apps/agentrun python3 -m agentrun.cli.main --conf-dir config/agentrun --runs-dir runs/agentrun profiles --json
+PYTHONPATH=apps/agentrun/src python3 -m agentrun.cli.main --conf-dir config/agentrun --runs-dir runs/agentrun doctor --json
+PYTHONPATH=apps/agentrun/src python3 -m agentrun.cli.main --conf-dir config/agentrun --runs-dir runs/agentrun profiles --json
 ```
 
 Web 验证：

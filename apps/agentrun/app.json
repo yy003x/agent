@@ -1,0 +1,14 @@
+{
+  "id": "agentrun",
+  "type": "python-runtime",
+  "source_roots": [
+    "src/agentrun",
+    "src/agentrun_workbench"
+  ],
+  "entrypoints": {
+    "cli": "agentrun.cli.main:main",
+    "workbench_runtime": "agentrun_workbench.MainRuntime"
+  },
+  "config_root": "../../config/agentrun",
+  "runs_root": "../../runs/agentrun"
+}

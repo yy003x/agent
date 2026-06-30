@@ -14,11 +14,11 @@ import subprocess
 import sys
 from pathlib import Path
 
-from apps.agentrun import MainRuntime
-from apps.agentrun import model_backends
-from apps.agentrun.adapter import agentrun_available
+from agentrun_workbench import MainRuntime
+from agentrun_workbench import model_backends
+from agentrun_workbench.adapter import agentrun_available
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(__file__).resolve().parents[4]
 MAIN_RUNTIME = MainRuntime()
 
 

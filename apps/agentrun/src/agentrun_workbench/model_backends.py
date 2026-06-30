@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(__file__).resolve().parents[4]
 LOCAL_ENV_FILE = ROOT / ".env"
 PLACEHOLDER_MARKERS = ("xxxx", "your_", "changeme")
 

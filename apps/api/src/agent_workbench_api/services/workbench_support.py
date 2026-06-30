@@ -8,9 +8,9 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-from apps.agentrun import MainRuntime
+from agentrun_workbench import MainRuntime
 
-ROOT = Path(__file__).resolve().parents[3]
+ROOT = Path(__file__).resolve().parents[5]
 SESSIONS_DIR = ROOT / "runs" / "workbench" / "sessions"
 CONFIG_PATH = ROOT / "runs" / "workbench" / "config.json"
 CONTENT_RUNTIME = ROOT / "skills" / "content-generate" / "scripts" / "content_runtime.py"

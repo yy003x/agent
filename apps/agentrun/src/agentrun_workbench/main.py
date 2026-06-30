@@ -1,7 +1,7 @@
 """Runtime gateway for the local workbench.
 
 This package maps the API/Web contract onto the in-repo AgentRun runtime under
-``apps/agentrun/agentrun``.
+``apps/agentrun/src/agentrun``.
 """
 from __future__ import annotations
 

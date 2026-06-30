@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """定时任务主程序（P4），基于 APScheduler。
 
-启动：python apps/scheduler/scheduler.py
-配置：apps/scheduler/jobs.json（cron 格式：分 时 日 月 周）
+启动：PYTHONPATH=apps/scheduler/src python3 -m agent_scheduler.scheduler
+配置：apps/scheduler/conf/jobs.json（cron 格式：分 时 日 月 周）
 
 设计依据：design/README.md。
 - BackgroundScheduler 注册 job，command 用 subprocess 执行
@@ -20,8 +20,8 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[2]
-JOBS_FILE = Path(__file__).resolve().parent / "jobs.json"
+ROOT = Path(__file__).resolve().parents[4]
+JOBS_FILE = ROOT / "apps" / "scheduler" / "conf" / "jobs.json"
 LOG_DIR = ROOT / "runs" / "scheduler"
 
 

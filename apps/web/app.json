@@ -1,0 +1,14 @@
+{
+  "id": "web",
+  "type": "vite-react",
+  "source_roots": [
+    "src"
+  ],
+  "entrypoints": {
+    "dev": "npm run dev",
+    "build": "npm run build"
+  },
+  "depends_on": [
+    "api"
+  ]
+}

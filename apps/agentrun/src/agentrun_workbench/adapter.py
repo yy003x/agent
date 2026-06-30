@@ -18,10 +18,11 @@ from pathlib import Path
 from typing import Any
 
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
+APP_ROOT = Path(__file__).resolve().parents[2]
+PROJECT_ROOT = APP_ROOT.parents[1]
 AGENTS_ROOT = PROJECT_ROOT.parent
-LOCAL_RUNTIME_ROOT = Path(__file__).resolve().parent
-LOCAL_AGENTRUN_PACKAGE = LOCAL_RUNTIME_ROOT / "agentrun"
+LOCAL_RUNTIME_ROOT = APP_ROOT
+LOCAL_AGENTRUN_PACKAGE = LOCAL_RUNTIME_ROOT / "src" / "agentrun"
 LOCAL_CONFIG_ROOT = PROJECT_ROOT / "config" / "agentrun"
 DEFAULT_AGENTRUN_RUNS_DIR = PROJECT_ROOT / "runs" / "agentrun"
 DEFAULT_AGENT_PYTHON = AGENTS_ROOT / ".venv" / "bin" / "python3"

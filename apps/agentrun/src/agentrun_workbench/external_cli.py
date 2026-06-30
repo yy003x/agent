@@ -9,10 +9,10 @@ import time
 import uuid
 from pathlib import Path
 
-from .adapter import LOCAL_CONFIG_ROOT, LOCAL_RUNTIME_ROOT, AgentRunAdapter, AgentRunSpec, agentrun_available
+from .adapter import PROJECT_ROOT, LOCAL_CONFIG_ROOT, LOCAL_RUNTIME_ROOT, AgentRunAdapter, AgentRunSpec, agentrun_available
 from .state import RuntimeErrorState
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = PROJECT_ROOT
 RUNS_DIR = ROOT / "runs" / "agentrun"
 DEFAULT_RUNTIME = os.environ.get("AGENT_WORKBENCH_DEFAULT_RUNTIME", "tmux")
 TASK_RUNTIMES = {"cli", "api", "tmux"}

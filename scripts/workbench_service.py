@@ -23,6 +23,12 @@ from urllib.request import urlopen
 
 ROOT = Path(__file__).resolve().parents[1]
 WEB_DIR = ROOT / "apps" / "web"
+PYTHON_SRC_DIRS = [
+    ROOT / "apps" / "api" / "src",
+    ROOT / "apps" / "workflows" / "src",
+    ROOT / "apps" / "agentrun" / "src",
+    ROOT / "apps" / "scheduler" / "src",
+]
 RUN_DIR = ROOT / "runs" / "workbench"
 SERVICES_DIR = RUN_DIR / "services"
 API_SERVICE_PREFIX = "agent_workbench_api"
@@ -233,10 +239,12 @@ def python_bin() -> str:
 def build_env() -> dict[str, str]:
     env = os.environ.copy()
     env["PYTHONUNBUFFERED"] = "1"
+    python_paths = [str(path) for path in PYTHON_SRC_DIRS if path.exists()]
+    python_paths.append(str(ROOT))
     env["PYTHONPATH"] = (
-        str(ROOT)
+        os.pathsep.join(python_paths)
         if not env.get("PYTHONPATH")
-        else f"{ROOT}{os.pathsep}{env['PYTHONPATH']}"
+        else f"{os.pathsep.join(python_paths)}{os.pathsep}{env['PYTHONPATH']}"
     )
     venv_bin = ROOT / ".venv" / "bin"
     if venv_bin.exists():
@@ -265,7 +273,7 @@ def start_service(args: argparse.Namespace) -> int:
         python_bin(),
         "-m",
         "uvicorn",
-        "apps.api.main:app",
+        "agent_workbench_api.main:app",
         "--host",
         host,
         "--port",

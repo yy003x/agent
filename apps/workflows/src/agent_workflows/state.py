@@ -13,7 +13,7 @@ import uuid
 from pathlib import Path
 from typing import Any, Literal
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(__file__).resolve().parents[4]
 RUNS_ROOT = ROOT / "runs" / "workflows"
 
 WorkflowStatus = Literal["running", "waiting", "completed", "failed", "cancelled"]
@@ -120,4 +120,3 @@ class WorkflowState:
             outputs=dict(data.get("outputs") or {}),
             errors=list(data.get("errors") or []),
         )
-

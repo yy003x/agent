@@ -12,7 +12,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from apps.workflows.state import (
+from agent_workflows.state import (
     ROOT,
     RUNS_ROOT,
     WorkflowState,

@@ -1,0 +1,12 @@
+{
+  "id": "scheduler",
+  "type": "python-scheduler",
+  "source_roots": [
+    "src/agent_scheduler"
+  ],
+  "entrypoints": {
+    "cli": "agent_scheduler.scheduler:main"
+  },
+  "config_root": "conf",
+  "runs_root": "../../runs/scheduler"
+}

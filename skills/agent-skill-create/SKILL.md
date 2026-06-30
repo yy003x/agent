@@ -17,7 +17,7 @@ metadata:
 skills/<skill-name>/SKILL.md
 ```
 
-`apps/agentrun/skill_registry.py` 会扫描这些文件，并通过 GUI 的 Skill 能力面板展示。当前项目不要求 `skills/index.json` 或 `agents/openai.yaml`。
+`apps/agentrun/src/agentrun_workbench/skill_registry.py` 会扫描这些文件，并通过 GUI 的 Skill 能力面板展示。当前项目不要求 `skills/index.json` 或 `agents/openai.yaml`。
 
 ## 执行流程
 
@@ -65,7 +65,7 @@ metadata:
 bash scripts/validate.sh --quick
 python3 - <<'PY'
 from pathlib import Path
-from apps.agentrun.skill_registry import SkillRegistry
+from agentrun_workbench.skill_registry import SkillRegistry
 skills = SkillRegistry(Path("skills"), Path(".")).list()
 print([item["name"] for item in skills])
 PY

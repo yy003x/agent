@@ -11,9 +11,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from apps.api import file_browser
-from apps.api import health
-from apps.api.schemas import (
+from agent_workbench_api import file_browser
+from agent_workbench_api import health
+from agent_workbench_api.schemas import (
     AddMessageRequest,
     CancelWorkflowRequest,
     ContinueWorkflowRequest,
@@ -27,11 +27,11 @@ from apps.api.schemas import (
     StartContentDeliveryWorkflowRequest,
     StartRuntimeRequest,
 )
-from apps.api.services import workbench
-from apps.workflows import content_delivery
-from apps.agentrun import model_backends
+from agent_workbench_api.services import workbench
+from agent_workflows import content_delivery
+from agentrun_workbench import model_backends
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(__file__).resolve().parents[4]
 WEB_DIST = ROOT / "apps" / "web" / "dist"
 
 

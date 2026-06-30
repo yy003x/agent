@@ -1,0 +1,15 @@
+{
+  "id": "api",
+  "type": "python-fastapi",
+  "source_roots": [
+    "src/agent_workbench_api"
+  ],
+  "entrypoints": {
+    "asgi": "agent_workbench_api.main:app"
+  },
+  "depends_on": [
+    "agentrun",
+    "workflows"
+  ],
+  "runs_root": "../../runs/workbench"
+}

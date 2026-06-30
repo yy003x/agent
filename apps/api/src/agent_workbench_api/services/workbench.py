@@ -12,9 +12,9 @@ import time
 import uuid
 from pathlib import Path
 
-from apps.api import file_browser
-from apps.api import health
-from apps.api.services.workbench_config import (
+from agent_workbench_api import file_browser
+from agent_workbench_api import health
+from agent_workbench_api.services.workbench_config import (
     _command_for_runtime,
     _runtime_options_from_config,
     runtime_config_payload,
@@ -22,7 +22,7 @@ from apps.api.services.workbench_config import (
     validate_runtime_config,
     workbench_config,
 )
-from apps.api.services.workbench_support import (
+from agent_workbench_api.services.workbench_support import (
     CHAT_WAIT_SECONDS,
     CONTENT_RUNTIME,
     MAIN_RUNTIME,

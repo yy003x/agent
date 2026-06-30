@@ -1,0 +1,11 @@
+{
+  "id": "workflows",
+  "type": "python-workflows",
+  "source_roots": [
+    "src/agent_workflows"
+  ],
+  "entrypoints": {
+    "content_delivery": "agent_workflows.content_delivery"
+  },
+  "runs_root": "../../runs/workflows"
+}
