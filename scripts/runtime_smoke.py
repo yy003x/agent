@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import subprocess
 import sys
@@ -48,6 +49,8 @@ def main(argv: list[str] | None = None) -> int:
     profile = args.profile or DEFAULT_PROFILES[runtime]
     run_id = args.run_id or _new_run_id(runtime)
     cli = AgentRunCLI(conf_dir=conf_dir, runs_dir=runs_dir, json_output=args.json)
+    profile_config = require_configured_profile(cli, args, runtime=runtime, profile=profile)
+    emit_config_log(args, profile_config)
 
     if runtime == "tmux":
         return run_tmux(cli, args, prompt=prompt, profile=profile, run_id=run_id, cwd=cwd)
@@ -92,6 +95,44 @@ def _load_prompt(args: argparse.Namespace) -> str:
     if not sys.stdin.isatty():
         return sys.stdin.read().rstrip("\n")
     return "看下当前项目实现了什么"
+
+
+def require_configured_profile(
+    cli: "AgentRunCLI",
+    args: argparse.Namespace,
+    *,
+    runtime: str,
+    profile: str,
+) -> dict[str, object]:
+    payload = cli.run_json(["config", "choices", "--project", args.project, "--all"], timeout=30)
+    choices = payload.get("choices")
+    if not isinstance(choices, list):
+        raise SystemExit("AgentRun config choices 输出格式异常")
+    for item in choices:
+        if not isinstance(item, dict) or item.get("id") != profile:
+            continue
+        transport = str(item.get("transport") or "")
+        if transport != runtime:
+            raise SystemExit(f"runtime profile transport 不匹配: profile={profile} transport={transport} expected={runtime}")
+        return item
+    raise SystemExit(f"runtime profile 未从 AgentRun 配置解析到: {profile}")
+
+
+def emit_config_log(args: argparse.Namespace, profile_config: dict[str, object]) -> None:
+    if args.json:
+        return
+    detail = profile_config.get("detail")
+    command = ""
+    if isinstance(detail, dict):
+        command = str(detail.get("command") or detail.get("model") or "")
+    provider = str(profile_config.get("provider_name") or "")
+    suffix = f" provider={provider}" if provider else ""
+    suffix += f" command={command}" if command else ""
+    emit_runtime_log(
+        args,
+        "runtime 配置校验通过: "
+        f"profile={profile_config.get('id')} transport={profile_config.get('transport')}{suffix}",
+    )
 
 
 def run_task(
@@ -272,6 +313,40 @@ class AgentRunCLI:
             if proc.stderr:
                 print(proc.stderr, end="", file=sys.stderr)
         return proc.returncode
+
+    def run_json(self, args: list[str], *, timeout: int | None) -> dict[str, object]:
+        env = os.environ.copy()
+        env["PYTHONPATH"] = str(self.pythonpath) + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
+        cmd = [
+            sys.executable,
+            "-m",
+            "agentrun.cli.main",
+            "--conf-dir",
+            str(self.conf_dir),
+            "--runs-dir",
+            str(self.runs_dir),
+            "--json",
+            *args,
+        ]
+        proc = subprocess.run(
+            cmd,
+            cwd=ROOT,
+            env=env,
+            text=True,
+            timeout=timeout,
+            capture_output=True,
+            check=False,
+        )
+        if proc.returncode != 0:
+            stderr = proc.stderr.strip()
+            raise SystemExit(f"读取 AgentRun 配置失败: {stderr or proc.stdout.strip()}")
+        try:
+            payload = json.loads(proc.stdout or "{}")
+        except json.JSONDecodeError as exc:
+            raise SystemExit(f"AgentRun 配置输出不是 JSON: {proc.stdout!r}") from exc
+        if not isinstance(payload, dict):
+            raise SystemExit("AgentRun 配置输出不是 JSON object")
+        return payload
 
     def _run_isolated(
         self,
