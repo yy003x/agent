@@ -8,6 +8,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import signal
 import subprocess
 import sys
 from datetime import datetime
@@ -81,7 +82,7 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser.add_argument("--deadline-seconds", type=int, default=300, help="cli/api task 超时时间")
     parser.add_argument("--tmux-wait-seconds", type=int, default=DEFAULT_TMUX_WAIT_SECONDS, help="tmux watch 秒数;0 表示持续监控")
     parser.add_argument("--tail", type=int, default=120, help="watch 内部读取行数;默认不展示")
-    parser.add_argument("--poll-seconds", type=float, default=1.0, help="tmux watch 轮询秒数")
+    parser.add_argument("--poll-seconds", type=float, default=1.0, help="watch 轮询秒数")
     parser.add_argument("--force", action="store_true", help="透传 AgentRun --force")
     parser.add_argument("--json", action="store_true", help="透传 AgentRun --json")
     return parser.parse_intermixed_args(argv)
@@ -163,7 +164,42 @@ def run_task(
     ]
     if args.force:
         command.append("--force")
-    return cli.run(command, timeout=max(args.deadline_seconds + 30, 60))
+    timeout = max(args.deadline_seconds + 30, 60)
+    if args.json:
+        return cli.run(command, timeout=timeout)
+
+    proc: subprocess.Popen[str] | None = None
+    try:
+        emit_runtime_log(args, f"准备启动 runtime run_id={run_id}")
+        proc = cli.popen(command, capture=True)
+        emit_runtime_log(args, "runtime 已启动,开始打印 AgentRun task 日志;按 Ctrl+C 取消 task 并终止 CLI runtime")
+        watch_cmd = [
+            "task",
+            "watch",
+            run_id,
+            "--project",
+            args.project,
+            "--tail",
+            str(args.tail),
+            "--poll-seconds",
+            str(args.poll_seconds),
+        ]
+        code = cli.run(watch_cmd, timeout=timeout, isolate_interrupt=True)
+        proc_code, stdout, stderr = cli.wait_process(proc, timeout=10)
+        emit_process_output(stdout, stderr)
+        emit_task_result(cli, args, run_id)
+        return proc_code if proc_code != 0 else code
+    except KeyboardInterrupt:
+        print("\n收到 Ctrl+C,正在取消 task 并终止 CLI runtime。", file=sys.stderr)
+        if proc is not None:
+            proc_code, stdout, stderr = cli.stop_process_group(proc, timeout=5)
+            emit_process_output(stdout, stderr)
+            if proc_code not in (0, 130, -signal.SIGINT):
+                emit_runtime_log(args, f"runtime 进程退出码: {proc_code}")
+        if task_state(cli, args, run_id) not in {"done", "failed", "blocked", "cancelled"}:
+            cli.run(["task", "cancel", run_id, "--project", args.project], timeout=30, silent=True)
+        emit_task_result(cli, args, run_id)
+        return 130
 
 
 def run_tmux(
@@ -254,6 +290,46 @@ def emit_tmux_result(cli: "AgentRunCLI", args: argparse.Namespace, run_id: str) 
     print("result.json 尚未生成")
 
 
+def emit_task_result(cli: "AgentRunCLI", args: argparse.Namespace, run_id: str) -> None:
+    run_dir = cli.runs_dir / "tasks" / args.project / run_id
+    result_file = run_dir / "result.json"
+    status_file = run_dir / "status.json"
+    print("")
+    print("== AgentRun task result ==", flush=True)
+    if result_file.is_file():
+        print(result_file.read_text(encoding="utf-8").rstrip())
+        return
+    print("result.json 尚未生成")
+    if status_file.is_file():
+        print("")
+        print("== AgentRun task status ==", flush=True)
+        print(status_file.read_text(encoding="utf-8").rstrip())
+
+
+def emit_process_output(stdout: str, stderr: str) -> None:
+    if stdout.strip():
+        print("")
+        print("== AgentRun task run ==", flush=True)
+        print(stdout.rstrip())
+    if stderr.strip():
+        print("")
+        print("== AgentRun task stderr ==", file=sys.stderr, flush=True)
+        print(stderr.rstrip(), file=sys.stderr)
+
+
+def task_state(cli: "AgentRunCLI", args: argparse.Namespace, run_id: str) -> str:
+    status_file = cli.runs_dir / "tasks" / args.project / run_id / "status.json"
+    if not status_file.is_file():
+        return ""
+    try:
+        data = json.loads(status_file.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return ""
+    if not isinstance(data, dict):
+        return ""
+    return str(data.get("state") or "")
+
+
 class AgentRunCLI:
     def __init__(self, *, conf_dir: Path, runs_dir: Path, json_output: bool) -> None:
         self.conf_dir = conf_dir
@@ -313,6 +389,54 @@ class AgentRunCLI:
             if proc.stderr:
                 print(proc.stderr, end="", file=sys.stderr)
         return proc.returncode
+
+    def popen(self, args: list[str], *, capture: bool) -> subprocess.Popen[str]:
+        env = os.environ.copy()
+        env["PYTHONPATH"] = str(self.pythonpath) + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
+        cmd = [
+            sys.executable,
+            "-m",
+            "agentrun.cli.main",
+            "--conf-dir",
+            str(self.conf_dir),
+            "--runs-dir",
+            str(self.runs_dir),
+            *args,
+        ]
+        return subprocess.Popen(
+            cmd,
+            cwd=ROOT,
+            env=env,
+            text=True,
+            stdout=subprocess.PIPE if capture else None,
+            stderr=subprocess.PIPE if capture else None,
+            start_new_session=True,
+        )
+
+    def wait_process(self, proc: subprocess.Popen[str], *, timeout: int | None) -> tuple[int, str, str]:
+        try:
+            stdout, stderr = proc.communicate(timeout=timeout)
+            return proc.returncode, stdout or "", stderr or ""
+        except subprocess.TimeoutExpired:
+            code, stdout, stderr = self.stop_process_group(proc, timeout=3)
+            return code if code is not None else 124, stdout, stderr
+
+    def stop_process_group(self, proc: subprocess.Popen[str], *, timeout: int = 3) -> tuple[int, str, str]:
+        if proc.poll() is None:
+            try:
+                os.killpg(os.getpgid(proc.pid), signal.SIGINT)
+            except ProcessLookupError:
+                pass
+        try:
+            stdout, stderr = proc.communicate(timeout=timeout)
+            return proc.returncode, stdout or "", stderr or ""
+        except subprocess.TimeoutExpired:
+            try:
+                os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            stdout, stderr = proc.communicate()
+            return proc.returncode, stdout or "", stderr or ""
 
     def run_json(self, args: list[str], *, timeout: int | None) -> dict[str, object]:
         env = os.environ.copy()

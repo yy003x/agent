@@ -13,7 +13,7 @@ from typing import Any
 from agentrun.core.config import Profile
 from agentrun.core.contract import event, mark_done_if_valid, read_result, write_result, write_status
 from agentrun.core.rundir import RunPaths
-from agentrun.core.run import RUNNING, RunRequest
+from agentrun.core.run import CANCELLED, RUNNING, RunRequest
 
 
 class CodeCliProvider:
@@ -70,6 +70,12 @@ class CodeCliProvider:
                 provider_status=provider_status,
                 message=_failure_message(f"超时 {timeout}s", error_excerpt),
             )
+            return {"status": status}
+        except KeyboardInterrupt:
+            stdout, stderr = _terminate_process_group(proc)
+            _write_log(paths, argv, stdout, stderr, "cancelled")
+            event(paths, request, "provider.cancelled", {"transport": self.transport})
+            status = write_status(paths, request, CANCELLED, provider_status=provider_status, message="cli cancelled")
             return {"status": status}
 
         returncode = proc.returncode if proc is not None else 1

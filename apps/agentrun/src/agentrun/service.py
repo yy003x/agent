@@ -274,7 +274,7 @@ class RuntimeService:
                 status["classification"] = self.registry.classify(run_id)
                 status["provider_live_error"] = str(exc)
         else:
-            status["classification"] = self.registry.classify(run_id)
+            status["classification"] = str(status.get("state") or self.registry.classify(run_id))
         return status
 
     def logs(

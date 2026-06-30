@@ -5,8 +5,11 @@ import json
 import stat
 import tempfile
 import unittest
+from contextlib import redirect_stdout
+from io import StringIO
 from pathlib import Path
 
+from agentrun.cli.main import main as cli_main
 from agentrun.kernel import AgentRuntime
 
 
@@ -91,6 +94,35 @@ class CliProviderE2ETest(unittest.TestCase):
             self.assertEqual(second["state"], "done")
             self.assertTrue(second["idempotent"])
             self.assertEqual(second["run_id"], "task-fixed")
+
+    def test_task_watch_reaches_terminal_state(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            prompt = root / "p.md"
+            prompt.write_text("x", encoding="utf-8")
+            conf = _conf(root, _script(root))
+            runs_dir = root / "runs"
+            rt = AgentRuntime(conf_dir=conf, runs_dir=runs_dir)
+            out = rt.run_task(prompt_file=prompt, run_id="task-watch")
+            self.assertEqual(out["state"], "done")
+
+            buf = StringIO()
+            with redirect_stdout(buf):
+                code = cli_main(
+                    [
+                        "--conf-dir",
+                        str(conf),
+                        "--runs-dir",
+                        str(runs_dir),
+                        "task",
+                        "watch",
+                        "task-watch",
+                        "--poll-seconds",
+                        "0.1",
+                    ]
+                )
+            self.assertEqual(code, 0)
+            self.assertIn("AgentRun 监控结束：done", buf.getvalue())
 
 
 if __name__ == "__main__":

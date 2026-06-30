@@ -57,6 +57,12 @@ def main(argv: list[str] | None = None) -> int:
     p_logs.add_argument("run_id")
     p_logs.add_argument("--project", default=None)
     p_logs.add_argument("--tail", type=int, default=120)
+    p_watch = task_sub.add_parser("watch")
+    p_watch.add_argument("run_id")
+    p_watch.add_argument("--project", default=None)
+    p_watch.add_argument("--tail", type=int, default=120)
+    p_watch.add_argument("--seconds", type=int, default=0)
+    p_watch.add_argument("--poll-seconds", type=float, default=1.0)
     p_cancel = task_sub.add_parser("cancel")
     p_cancel.add_argument("run_id")
     p_cancel.add_argument("--project", default=None)
@@ -149,6 +155,9 @@ def _dispatch(rt: AgentRuntime, args: argparse.Namespace) -> Any:
             return rt.task_status(args.run_id, project_id=args.project)
         if args.task_cmd == "logs":
             return rt.logs(args.run_id, project_id=args.project, run_type=TASK, tail=args.tail)
+        if args.task_cmd == "watch":
+            _watch_run(rt, args, run_type=TASK, include_events=True)
+            return _NO_EMIT
         if args.task_cmd == "cancel":
             return rt.cancel(args.run_id, project_id=args.project, run_type=TASK)
     if args.cmd == "session":
@@ -175,7 +184,7 @@ def _dispatch(rt: AgentRuntime, args: argparse.Namespace) -> Any:
         if args.session_cmd == "logs":
             return rt.logs(args.run_id, project_id=args.project, run_type=SESSION, tail=args.tail)
         if args.session_cmd == "watch":
-            _watch_session(rt, args)
+            _watch_run(rt, args, run_type=SESSION, include_events=False)
             return _NO_EMIT
         if args.session_cmd == "interrupt":
             return rt.interrupt(args.run_id, project_id=args.project, run_type=SESSION)
@@ -186,24 +195,44 @@ def _dispatch(rt: AgentRuntime, args: argparse.Namespace) -> Any:
     raise ValueError(f"未知命令: {args.cmd}")
 
 
-def _watch_session(rt: AgentRuntime, args: argparse.Namespace) -> None:
+def _watch_run(rt: AgentRuntime, args: argparse.Namespace, *, run_type: str, include_events: bool) -> None:
     started = time.monotonic()
     previous = ""
+    last_event_seq = 0
     poll = max(float(args.poll_seconds or 1.0), 0.1)
     terminal = {"orphaned", "done", "failed", "blocked", "cancelled"}
+    wait_for_run_seconds = 5.0
 
     if not args.json:
         print("")
-        print("开始通过 AgentRun 监控 session 日志。按 Ctrl-C 只停止监控，不停止 session。")
+        print(f"开始通过 AgentRun 监控 {run_type} 日志。按 Ctrl-C 停止监控。")
         print("", flush=True)
 
     while True:
-        status = rt.status(args.run_id, project_id=args.project, run_type=SESSION)
+        elapsed = time.monotonic() - started
+        try:
+            status = rt.status(args.run_id, project_id=args.project, run_type=run_type)
+        except ValueError:
+            if elapsed < wait_for_run_seconds:
+                time.sleep(poll)
+                continue
+            raise
         classification = str(status.get("classification") or "")
-        logs = rt.logs(args.run_id, project_id=args.project, run_type=SESSION, tail=args.tail)
+        logs = rt.logs(args.run_id, project_id=args.project, run_type=run_type, tail=args.tail)
         current = str(logs.get("content") or "")
         delta = _log_delta(previous, current)
         previous = current
+        events = logs.get("events") if include_events else []
+        event_delta: list[dict[str, Any]] = []
+        if isinstance(events, list):
+            for item in events:
+                if not isinstance(item, dict):
+                    continue
+                seq = int(item.get("seq") or 0)
+                if seq <= last_event_seq:
+                    continue
+                event_delta.append(item)
+                last_event_seq = seq
 
         if args.json:
             print(
@@ -211,7 +240,9 @@ def _watch_session(rt: AgentRuntime, args: argparse.Namespace) -> None:
                     {
                         "type": "watch.tick",
                         "run_id": args.run_id,
+                        "run_type": run_type,
                         "classification": classification,
+                        "events_delta": event_delta,
                         "content_delta": delta,
                     },
                     ensure_ascii=False,
@@ -219,9 +250,12 @@ def _watch_session(rt: AgentRuntime, args: argparse.Namespace) -> None:
                 flush=True,
             )
         elif delta:
+            if event_delta:
+                print(_format_events(event_delta), end="", flush=True)
             print(delta, end="", flush=True)
+        elif event_delta:
+            print(_format_events(event_delta), end="", flush=True)
 
-        elapsed = time.monotonic() - started
         if args.seconds and elapsed >= args.seconds:
             _watch_done(args, classification, elapsed, "seconds_elapsed")
             return
@@ -244,6 +278,17 @@ def _watch_done(args: argparse.Namespace, classification: str, elapsed: float, r
         return
     print("")
     print(f"AgentRun 监控结束：{classification or 'unknown'} ({reason})", flush=True)
+
+
+def _format_events(events: list[dict[str, Any]]) -> str:
+    lines: list[str] = []
+    for item in events:
+        seq = item.get("seq", "?")
+        event_type = item.get("type", "event")
+        data = item.get("data") or {}
+        detail = json.dumps(data, ensure_ascii=False) if data else "{}"
+        lines.append(f"[agentrun event #{seq}] {event_type} {detail}")
+    return "\n".join(lines) + ("\n" if lines else "")
 
 
 def _log_delta(previous: str, current: str) -> str:
