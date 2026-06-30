@@ -17,13 +17,19 @@ metadata:
 `book-asset` / `knowledge-sync`；成品包整理走 `content-package`；发布前审核走
 `content-compliance-review`。
 
+## 实现归属
+
+本 skill 只负责内容生成流程、人工门禁和输出契约。真实 KB、检索、草稿、组装计划、
+媒体处理和发布包实现归属 `apps/content-runtime/`。新增代码优先改 app；本 skill
+只维护调用方式和操作约束。
+
 ---
 
 ## 前置检查
 
 执行前确认以下条件满足，任一不满足则停下告知用户：
 
-- [ ] `workspace/kb/lance/` 存在（运行 `content_runtime.py init` 初始化 LanceDB）
+- [ ] `workspace/kb/lance/` 存在（运行 `apps/content-runtime/bin/content-runtime init` 初始化 LanceDB）
 - [ ] 向量模型可用（bge-small-zh-v1.5；reranker 加载失败时允许降级）
 - [ ] 需要新增图片/视频 caption、智能润色、QA 或需求抽取时，所选智能 runtime 可用：默认 `codex_cli`，或配置启用的 `claude_cli`；工作台路径通过 tmux 真会话执行
 - [ ] 形态包含短视频或需要视频 ingest/assemble 时，`ffmpeg` 可执行
@@ -50,7 +56,7 @@ metadata:
 ### 步骤 2：检索素材
 
 ```bash
-python skills/content-generate/scripts/content_runtime.py kb search \
+python apps/content-runtime/bin/content-runtime kb search \
   --query "<主题关键词>" \
   --modality all \
   --topk 10 \
@@ -88,7 +94,7 @@ python skills/content-generate/scripts/content_runtime.py kb search \
 先把选中素材整理成 `sources.json`，再调用 runtime 生成可编辑草稿：
 
 ```bash
-python skills/content-generate/scripts/content_runtime.py text draft \
+python apps/content-runtime/bin/content-runtime text draft \
   --brief "<用户需求摘要>" \
   --platform xiaohongshu \
   --style "<知识科普|情感共鸣|书单推荐|读书笔记>" \
@@ -107,7 +113,7 @@ python skills/content-generate/scripts/content_runtime.py text draft \
 根据确认后的 `draft.json` 和素材选择生成组装方案：
 
 ```bash
-python skills/content-generate/scripts/content_runtime.py plan build \
+python apps/content-runtime/bin/content-runtime plan build \
   --draft outputs/YYYY-MM-DD/content/<slug>/draft.json \
   --out outputs/YYYY-MM-DD/content/<slug>/plan.json \
   --allow-write
@@ -118,7 +124,7 @@ python skills/content-generate/scripts/content_runtime.py plan build \
 ### 步骤 7：组装
 
 ```bash
-python skills/content-generate/scripts/content_runtime.py media assemble \
+python apps/content-runtime/bin/content-runtime media assemble \
   --spec outputs/YYYY-MM-DD/content/<slug>/plan.json \
   --out outputs/YYYY-MM-DD/content/<slug>/ \
   --allow-write
@@ -129,7 +135,7 @@ python skills/content-generate/scripts/content_runtime.py media assemble \
 如果用户只要求打包已有草稿或整理发布包，直接转 `content-package`，不要重新生成内容。
 
 ```bash
-python skills/content-generate/scripts/content_runtime.py publish package \
+python apps/content-runtime/bin/content-runtime publish package \
   --platform xiaohongshu \
   --in outputs/YYYY-MM-DD/content/<slug>/ \
   --allow-write
@@ -156,7 +162,7 @@ python skills/content-generate/scripts/content_runtime.py publish package \
 ### 步骤 10：收尾
 
 ```bash
-python scripts/finalize.py record \
+python3 apps/agent-memory/bin/finalize record \
   --skill content-generate \
   --status success \
   --summary "生成<平台>内容：<主题>，使用素材 <N> 条，产出 outputs/<path>"

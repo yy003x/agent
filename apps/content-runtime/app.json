@@ -1,0 +1,14 @@
+{
+  "id": "content-runtime",
+  "type": "python-cli",
+  "source_roots": [
+    "src/agent_content_runtime"
+  ],
+  "entrypoints": {
+    "cli": "agent_content_runtime.cli:main",
+    "module": "python -m agent_content_runtime",
+    "script": "bin/content-runtime"
+  },
+  "workspace_root": "../../workspace/kb",
+  "runs_root": "../../runs/content-runtime"
+}

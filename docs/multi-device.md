@@ -54,13 +54,13 @@ git push origin master
 预览同步清单：
 
 ```bash
-python3 scripts/state_sync.py plan
+python3 apps/state-sync/bin/state-sync plan
 ```
 
 导出 state package：
 
 ```bash
-python3 scripts/state_sync.py export
+python3 apps/state-sync/bin/state-sync export
 ```
 
 默认产物会写到 `runs/state-sync/<timestamp>-agent-state.tar.gz`。`runs/` 已被 Git 忽略，适合放本地临时包。
@@ -83,31 +83,31 @@ cp .env.example .env
 先只预览，不写文件：
 
 ```bash
-python3 scripts/state_sync.py import --archive /path/to/agent-state.tar.gz --dry-run
+python3 apps/state-sync/bin/state-sync import --archive /path/to/agent-state.tar.gz --dry-run
 ```
 
 确认后导入：
 
 ```bash
-python3 scripts/state_sync.py import --archive /path/to/agent-state.tar.gz
+python3 apps/state-sync/bin/state-sync import --archive /path/to/agent-state.tar.gz
 ```
 
 默认不会覆盖已有文件。确实要覆盖时再显式加：
 
 ```bash
-python3 scripts/state_sync.py import --archive /path/to/agent-state.tar.gz --overwrite
+python3 apps/state-sync/bin/state-sync import --archive /path/to/agent-state.tar.gz --overwrite
 ```
 
 导入后检查：
 
 ```bash
-python3 scripts/state_sync.py verify
+python3 apps/state-sync/bin/state-sync verify
 bash scripts/validate.sh --quick
 ```
 
 ## 知识库路径
 
-`content_runtime.py` 支持用环境变量覆盖知识库位置：
+`apps/content-runtime/bin/content-runtime` 支持用环境变量覆盖知识库位置：
 
 ```bash
 export CONTENT_RUNTIME_KB_DIR="$HOME/AgentState/kb"
@@ -115,16 +115,16 @@ export CONTENT_RUNTIME_LANCE_DIR="$CONTENT_RUNTIME_KB_DIR/lance"
 export CONTENT_RUNTIME_MEDIA_STORE="$HOME/AgentState/media-store"
 ```
 
-如果使用云盘目录承载这些路径，需要避免两台电脑同时写同一个 LanceDB 目录。更稳的方式仍是用 `state_sync.py export/import` 做明确快照。
+如果使用云盘目录承载这些路径，需要避免两台电脑同时写同一个 LanceDB 目录。更稳的方式仍是用 `apps/state-sync/bin/state-sync export/import` 做明确快照。
 
 ## 冲突处理
 
-`state_sync.py import` 的默认策略是保留目标电脑已有文件，跳过冲突。原因是 `workspace/` 和 `outputs/` 可能包含目标电脑新增内容，默认覆盖容易丢失本地工作。
+`apps/state-sync/bin/state-sync import` 的默认策略是保留目标电脑已有文件，跳过冲突。原因是 `workspace/` 和 `outputs/` 可能包含目标电脑新增内容，默认覆盖容易丢失本地工作。
 
 需要迁移到一台空电脑时，通常不需要 `--overwrite`。需要把主电脑状态强制刷新到备机时，先在备机执行：
 
 ```bash
-python3 scripts/state_sync.py import --archive /path/to/agent-state.tar.gz --dry-run --overwrite
+python3 apps/state-sync/bin/state-sync import --archive /path/to/agent-state.tar.gz --dry-run --overwrite
 ```
 
 确认预览后再去掉 `--dry-run`。

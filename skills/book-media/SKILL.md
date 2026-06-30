@@ -24,7 +24,7 @@ metadata:
 单文件检查：
 
 ```bash
-python3 skills/content-generate/scripts/content_runtime.py media probe <file>
+python3 apps/content-runtime/bin/content-runtime media probe <file>
 ```
 
 记录分辨率、时长、格式、是否可读、是否需要转码或裁剪。

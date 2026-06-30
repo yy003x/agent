@@ -22,7 +22,7 @@ KB 写入必须确认来源目录、modality、limit、是否 resume，以及用
 ### 步骤 2：执行 ingest
 
 ```bash
-python3 skills/content-generate/scripts/content_runtime.py kb ingest \
+python3 apps/content-runtime/bin/content-runtime kb ingest \
   --src <prepared-dir> \
   --modality auto \
   --limit <N> \
@@ -37,7 +37,7 @@ python3 skills/content-generate/scripts/content_runtime.py kb ingest \
 普通增量入库后优先重建 FTS / graph；全量或向量重建属于重型动作，除非用户明确要求。
 
 ```bash
-python3 skills/content-generate/scripts/content_runtime.py kb index \
+python3 apps/content-runtime/bin/content-runtime kb index \
   --rebuild fts \
   --allow-write
 ```
@@ -47,7 +47,7 @@ python3 skills/content-generate/scripts/content_runtime.py kb index \
 对本次关键词做只读检索：
 
 ```bash
-python3 skills/content-generate/scripts/content_runtime.py kb search \
+python3 apps/content-runtime/bin/content-runtime kb search \
   --query "<图书或主题关键词>" \
   --modality all \
   --topk 10 \

@@ -29,7 +29,7 @@ from agent_workflows.state import (
 WORKFLOW = "content_delivery"
 RUN_PREFIX = "content-delivery"
 RUN_ROOT = RUNS_ROOT / "content-delivery"
-CONTENT_RUNTIME = ROOT / "skills" / "content-generate" / "scripts" / "content_runtime.py"
+CONTENT_RUNTIME = ROOT / "apps" / "content-runtime" / "bin" / "content-runtime"
 
 STEP_DEFS = (
     {

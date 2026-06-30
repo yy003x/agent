@@ -35,8 +35,8 @@ metadata:
 当前项目的确定性脚本是：
 
 ```bash
-python3 scripts/agent_learning_review.py --dry-run
-python3 scripts/agent_learning_review.py
+python3 apps/agent-memory/bin/agent-learning-review --dry-run
+python3 apps/agent-memory/bin/agent-learning-review
 ```
 
 脚本会写入：
@@ -74,7 +74,7 @@ bash scripts/validate.sh --quick
 修改本 skill 后运行：
 
 ```bash
-python3 scripts/agent_learning_review.py --dry-run
+python3 apps/agent-memory/bin/agent-learning-review --dry-run
 bash scripts/validate.sh --quick
 ```
 

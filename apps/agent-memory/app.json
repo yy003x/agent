@@ -1,0 +1,19 @@
+{
+  "id": "agent-memory",
+  "type": "python-cli",
+  "source_roots": [
+    "src/agent_memory"
+  ],
+  "entrypoints": {
+    "finalize": "agent_memory.finalize:main",
+    "learning": "agent_memory.learning:main",
+    "module": "python -m agent_memory",
+    "finalize_script": "bin/finalize",
+    "learning_script": "bin/agent-learning-review"
+  },
+  "workspace_roots": [
+    "../../workspace/daily",
+    "../../workspace/resume",
+    "../../workspace/agent-learning"
+  ]
+}

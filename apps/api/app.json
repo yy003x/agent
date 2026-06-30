@@ -9,6 +9,7 @@
   },
   "depends_on": [
     "agentrun",
+    "content-runtime",
     "workflows"
   ],
   "runs_root": "../../runs/workbench"

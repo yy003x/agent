@@ -23,8 +23,11 @@
 |---|---|---|
 | Web UI | `apps/web/` | React + TypeScript 工作台前端 |
 | API | `apps/api/` | FastAPI 服务入口 |
+| 内容 runtime | `apps/content-runtime/` | 本地 KB、检索、草稿、媒体组装和发布包生成 |
 | 业务 workflow | `apps/workflows/` | 内容交付流程和状态机 |
 | 调度 | `apps/scheduler/` | 本地定时任务 |
+| 状态同步 | `apps/state-sync/` | ignored 本地状态导出、导入和校验 |
+| 工作台记忆 | `apps/agent-memory/` | session 收尾记录和自学习候选 |
 | AgentRun runtime | `apps/agentrun/` | 通用 provider、session、task、result-file 契约和工作台适配 |
 | skills | `skills/` | 可执行规程和本地脚本 |
 | rules | `rules/` | 路由、安全和写入门禁 |
@@ -36,8 +39,11 @@
 apps/
 ├── api/          # FastAPI API，源码在 src/agent_workbench_api/
 ├── web/          # React + TypeScript Web UI，源码在 src/
+├── content-runtime/ # 内容与 KB runtime，源码在 src/agent_content_runtime/
 ├── workflows/    # 业务 workflow，源码在 src/agent_workflows/
 ├── scheduler/    # APScheduler 本地任务，源码在 src/agent_scheduler/
+├── state-sync/    # 本地状态同步，源码在 src/agent_state_sync/
+├── agent-memory/ # 收尾与学习候选，源码在 src/agent_memory/
 └── agentrun/     # AgentRun runtime 和工作台适配，源码在 src/agentrun/ 与 src/agentrun_workbench/
 ```
 
@@ -60,7 +66,7 @@ POST   /api/runtime/runs/{run_id}/stop
 
 ## 内容与知识库
 
-`skills/content-generate/scripts/content_runtime.py` 是内容生成与 KB CLI：
+`apps/content-runtime/bin/content-runtime` 是内容生成与 KB CLI：
 
 - `kb ingest`：资料入库
 - `kb search`：检索本地 KB
@@ -76,7 +82,7 @@ POST   /api/runtime/runs/{run_id}/stop
 
 ## 自学习
 
-`scripts/finalize.py` 负责记录任务完成后的本地摘要；`scripts/agent_learning_review.py` 负责生成和晋升候选。晋升长期规则、skill 或 memory 必须经过用户确认，并在晋升后运行 quick 校验。
+`apps/agent-memory/bin/finalize` 负责记录任务完成后的本地摘要；`apps/agent-memory/bin/agent-learning-review` 负责生成和晋升候选。晋升长期规则、skill 或 memory 必须经过用户确认，并在晋升后运行 quick 校验。
 
 ## 验证入口
 

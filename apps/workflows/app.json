@@ -7,5 +7,8 @@
   "entrypoints": {
     "content_delivery": "agent_workflows.content_delivery"
   },
+  "depends_on": [
+    "content-runtime"
+  ],
   "runs_root": "../../runs/workflows"
 }

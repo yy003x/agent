@@ -29,7 +29,7 @@ def _ensure_supported_python() -> None:
     for candidate in (ROOT / ".venv" / "bin" / "python3", ROOT.parent / ".venv" / "bin" / "python3"):
         if candidate.exists() and str(candidate) != sys.executable:
             os.execv(str(candidate), [str(candidate), *sys.argv])
-    raise SystemExit("AgentRun 需要 Python 3.11+,当前解释器过旧")
+    raise SystemExit("AgentRun 需要 Python 3.11+,当前解释器版本过低")
 
 
 def main(argv: list[str] | None = None) -> int:

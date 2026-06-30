@@ -1,0 +1,14 @@
+{
+  "id": "state-sync",
+  "type": "python-cli",
+  "source_roots": [
+    "src/agent_state_sync"
+  ],
+  "entrypoints": {
+    "cli": "agent_state_sync.cli:main",
+    "module": "python -m agent_state_sync",
+    "script": "bin/state-sync"
+  },
+  "config_root": "../../config",
+  "runs_root": "../../runs/state-sync"
+}

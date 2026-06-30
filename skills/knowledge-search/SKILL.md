@@ -29,7 +29,7 @@ metadata:
 知识库检索优先使用只读模式：
 
 ```bash
-python3 skills/content-generate/scripts/content_runtime.py kb search \
+python3 apps/content-runtime/bin/content-runtime kb search \
   --query "<关键词>" \
   --modality all \
   --topk 10 \

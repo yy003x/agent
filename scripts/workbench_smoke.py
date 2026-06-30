@@ -13,7 +13,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parent.parent
-CONTENT_RUNTIME = ROOT / "skills" / "content-generate" / "scripts" / "content_runtime.py"
+CONTENT_RUNTIME = ROOT / "apps" / "content-runtime" / "bin" / "content-runtime"
 TEST_DATA = ROOT / "test-data" / "minimal"
 RUNS_DIR = ROOT / "runs" / "workbench-smoke"
 

@@ -44,7 +44,7 @@ outputs/YYYY-MM-DD/asset-ingest/<batch-slug>/manifest.json
 图片和视频先做可读性检查。单文件媒体可用：
 
 ```bash
-python3 skills/content-generate/scripts/content_runtime.py media probe <file>
+python3 apps/content-runtime/bin/content-runtime media probe <file>
 ```
 
 需要 caption 的图片/视频，如果现有 runtime 能处理，后续交给 `knowledge-sync` ingest；如果不能处理，标记为“需人工 caption”。
@@ -58,7 +58,7 @@ python3 skills/content-generate/scripts/content_runtime.py media probe <file>
 准备完成后，给出下一步命令建议：
 
 ```bash
-python3 skills/content-generate/scripts/content_runtime.py kb ingest \
+python3 apps/content-runtime/bin/content-runtime kb ingest \
   --src <prepared-dir> \
   --modality auto \
   --resume \

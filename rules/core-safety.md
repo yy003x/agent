@@ -9,17 +9,17 @@
 
 以下操作必须带 `--allow-write` 参数，且在执行前向用户展示将要写入的目标路径：
 
-- `content_runtime.py kb ingest`
-- `content_runtime.py kb index --rebuild`
-- `content_runtime.py kb gc`
-- `content_runtime.py text draft --out`
-- `content_runtime.py plan build`
-- `content_runtime.py media assemble`
-- `content_runtime.py publish package`
+- `apps/content-runtime/bin/content-runtime kb ingest`
+- `apps/content-runtime/bin/content-runtime kb index --rebuild`
+- `apps/content-runtime/bin/content-runtime kb gc`
+- `apps/content-runtime/bin/content-runtime text draft --out`
+- `apps/content-runtime/bin/content-runtime plan build`
+- `apps/content-runtime/bin/content-runtime media assemble`
+- `apps/content-runtime/bin/content-runtime publish package`
 
 **没有 `--allow-write` 时**：只做 dry-run，打印将要执行的操作，不实际写入。
 
-`content_runtime.py kb search` 默认会写入低风险运行态记录：
+`apps/content-runtime/bin/content-runtime kb search` 默认会写入低风险运行态记录：
 `workspace/kb/search-log.jsonl` 与命中条目的 `last_hit_at`。这不要求
 `--allow-write`，用于自学习和 KB 清理；需要严格只读时使用 `--no-log --no-touch`。
 

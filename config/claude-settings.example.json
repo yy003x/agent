@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python scripts/finalize.py hook"
+            "command": "python3 apps/agent-memory/bin/finalize hook"
           }
         ]
       }

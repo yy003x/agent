@@ -13,7 +13,7 @@ from agentrun_workbench import MainRuntime
 ROOT = Path(__file__).resolve().parents[5]
 SESSIONS_DIR = ROOT / "runs" / "workbench" / "sessions"
 CONFIG_PATH = ROOT / "runs" / "workbench" / "config.json"
-CONTENT_RUNTIME = ROOT / "skills" / "content-generate" / "scripts" / "content_runtime.py"
+CONTENT_RUNTIME = ROOT / "apps" / "content-runtime" / "bin" / "content-runtime"
 MAIN_RUNTIME = MainRuntime()
 CHAT_WAIT_SECONDS = float(os.environ.get("AGENT_WORKBENCH_CHAT_WAIT_SECONDS", "120"))
 CHAT_RUNTIME = os.environ.get("AGENT_WORKBENCH_CHAT_RUNTIME", MAIN_RUNTIME.default_runtime())

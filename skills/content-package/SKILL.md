@@ -22,7 +22,7 @@ metadata:
 ### 步骤 2：执行发布包命令
 
 ```bash
-python3 skills/content-generate/scripts/content_runtime.py publish package \
+python3 apps/content-runtime/bin/content-runtime publish package \
   --platform <xiaohongshu|moments|wechat_group> \
   --in outputs/YYYY-MM-DD/content/<slug>/ \
   --allow-write

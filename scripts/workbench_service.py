@@ -26,6 +26,9 @@ WEB_DIR = ROOT / "apps" / "web"
 PYTHON_SRC_DIRS = [
     ROOT / "apps" / "api" / "src",
     ROOT / "apps" / "workflows" / "src",
+    ROOT / "apps" / "content-runtime" / "src",
+    ROOT / "apps" / "state-sync" / "src",
+    ROOT / "apps" / "agent-memory" / "src",
     ROOT / "apps" / "agentrun" / "src",
     ROOT / "apps" / "scheduler" / "src",
 ]

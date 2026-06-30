@@ -7,6 +7,10 @@
   "entrypoints": {
     "cli": "agent_scheduler.scheduler:main"
   },
+  "depends_on": [
+    "content-runtime",
+    "agent-memory"
+  ],
   "config_root": "conf",
   "runs_root": "../../runs/scheduler"
 }
