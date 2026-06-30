@@ -3,13 +3,10 @@
 from __future__ import annotations
 
 from http import HTTPStatus
-from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
-from fastapi.staticfiles import StaticFiles
 
 from agent_workbench_api import file_browser
 from agent_workbench_api import health
@@ -31,9 +28,6 @@ from agent_workbench_api.services import workbench
 from agent_workflows import content_delivery
 from agentrun_workbench import model_backends
 
-ROOT = Path(__file__).resolve().parents[4]
-WEB_DIST = ROOT / "apps" / "web" / "dist"
-
 
 def _api_error(exc: Exception, status_code: int = HTTPStatus.BAD_REQUEST) -> HTTPException:
     return HTTPException(status_code=status_code, detail=str(exc))
@@ -47,8 +41,6 @@ app = FastAPI(title="个人 Agent 工作台 API", version="0.2.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "http://127.0.0.1:5173",
-        "http://localhost:5173",
         "http://127.0.0.1:5678",
         "http://localhost:5678",
     ],
@@ -313,13 +305,11 @@ def stop_runtime_run(run_id: str) -> dict:
         raise _api_error(exc) from exc
 
 
-if WEB_DIST.exists():
-    app.mount("/assets", StaticFiles(directory=WEB_DIST / "assets"), name="assets")
-
-
 @app.get("/", response_model=None)
-def web_index():
-    index = WEB_DIST / "index.html"
-    if index.exists():
-        return FileResponse(index)
-    return {"ok": True, "message": "个人 Agent 工作台 API 已启动，前端开发服务默认在 http://127.0.0.1:5173"}
+def api_index():
+    return {
+        "ok": True,
+        "message": "个人 Agent 工作台 API 已启动",
+        "api_docs": "http://127.0.0.1:8765/docs",
+        "web": "http://127.0.0.1:5678",
+    }

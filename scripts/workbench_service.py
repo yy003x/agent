@@ -652,7 +652,7 @@ def logs_web_service(args: argparse.Namespace) -> int:
 
 
 def add_common_service_args(parser: argparse.ArgumentParser, *, include_host: bool = False, include_log: bool = False) -> None:
-    parser.add_argument("name", nargs="?", help="service name, for example agent_workbench_api_8766")
+    parser.add_argument("name", nargs="?", help="service name, for example agent_workbench_api_8765")
     parser.add_argument("--port", type=int, help=f"API port, default {DEFAULT_API_PORT}")
     if include_host:
         parser.add_argument("--host", default=DEFAULT_HOST, help=f"bind host, default {DEFAULT_HOST}")
