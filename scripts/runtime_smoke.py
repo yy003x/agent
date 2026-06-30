@@ -20,10 +20,20 @@ DEFAULT_PROFILES = {
     "cli": "codex-cli",
     "api": "api-openai-gpt-4o-mini",
 }
-DEFAULT_TMUX_WAIT_SECONDS = 30
+DEFAULT_TMUX_WAIT_SECONDS = 0
+
+
+def _ensure_supported_python() -> None:
+    if sys.version_info >= (3, 11):
+        return
+    for candidate in (ROOT / ".venv" / "bin" / "python3", ROOT.parent / ".venv" / "bin" / "python3"):
+        if candidate.exists() and str(candidate) != sys.executable:
+            os.execv(str(candidate), [str(candidate), *sys.argv])
+    raise SystemExit("AgentRun 需要 Python 3.11+,当前解释器过旧")
 
 
 def main(argv: list[str] | None = None) -> int:
+    _ensure_supported_python()
     args = _parse_args(argv)
     runtime = args.runtime_option or args.runtime
     if not runtime:
@@ -66,10 +76,12 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser.add_argument("--cwd", default=str(ROOT), help="runtime 执行工作目录")
     parser.add_argument("--run-id", default="", help="指定 run_id;默认自动生成")
     parser.add_argument("--deadline-seconds", type=int, default=300, help="cli/api task 超时时间")
-    parser.add_argument("--tmux-wait-seconds", type=int, default=DEFAULT_TMUX_WAIT_SECONDS, help="tmux 投递后静默等待秒数")
+    parser.add_argument("--tmux-wait-seconds", type=int, default=DEFAULT_TMUX_WAIT_SECONDS, help="tmux watch 秒数;0 表示持续监控")
+    parser.add_argument("--tail", type=int, default=120, help="tmux watch/logs 行数")
+    parser.add_argument("--poll-seconds", type=float, default=1.0, help="tmux watch 轮询秒数")
     parser.add_argument("--force", action="store_true", help="透传 AgentRun --force")
     parser.add_argument("--json", action="store_true", help="透传 AgentRun --json")
-    return parser.parse_args(argv)
+    return parser.parse_intermixed_args(argv)
 
 
 def _load_prompt(args: argparse.Namespace) -> str:
@@ -136,31 +148,60 @@ def run_tmux(
     ]
     if args.force:
         start_cmd.append("--force")
-    quiet_success = not args.json
+    cleanup = False
     started = False
     try:
-        code = cli.run(start_cmd, timeout=120, quiet_success=quiet_success)
+        cleanup = True
+        code = cli.run(start_cmd, timeout=120, isolate_interrupt=True)
         if code != 0:
             return code
         started = True
 
         send_cmd = ["session", "send", run_id, "--project", args.project, "--text", prompt]
-        code = cli.run(send_cmd, timeout=30, quiet_success=quiet_success)
+        code = cli.run(send_cmd, timeout=30, isolate_interrupt=True)
         if code != 0:
             return code
 
         wait_seconds = max(int(args.tmux_wait_seconds), 0)
+        watch_cmd = [
+            "session",
+            "watch",
+            run_id,
+            "--project",
+            args.project,
+            "--tail",
+            str(args.tail),
+            "--poll-seconds",
+            str(args.poll_seconds),
+        ]
         if wait_seconds > 0:
-            watch_cmd = ["session", "watch", run_id, "--project", args.project, "--seconds", str(wait_seconds)]
-            code = cli.run(watch_cmd, timeout=wait_seconds + 15, quiet_success=quiet_success)
-            if code != 0:
-                return code
-        if not args.json:
-            print("OK: tmux runtime smoke 已执行并清理")
+            watch_cmd.extend(["--seconds", str(wait_seconds)])
+        code = cli.run(watch_cmd, timeout=wait_seconds + 15 if wait_seconds > 0 else None, isolate_interrupt=True)
+        if code != 0:
+            return code
+        emit_tmux_result(cli, args, run_id)
         return 0
-    finally:
+    except KeyboardInterrupt:
+        print("\n收到 Ctrl+C,正在返回当前结果并关闭 tmux session。", file=sys.stderr)
         if started:
+            emit_tmux_result(cli, args, run_id)
+        return 130
+    finally:
+        if cleanup:
             cli.run(["session", "stop", run_id, "--project", args.project], timeout=30, silent=True)
+
+
+def emit_tmux_result(cli: "AgentRunCLI", args: argparse.Namespace, run_id: str) -> None:
+    result_file = cli.runs_dir / "sessions" / args.project / run_id / "result.json"
+    print("")
+    print("== AgentRun result ==", flush=True)
+    if result_file.is_file():
+        print(result_file.read_text(encoding="utf-8").rstrip())
+        return
+    print(f"result.json 尚未生成: {result_file}")
+    print("")
+    print("== AgentRun logs ==", flush=True)
+    cli.run(["session", "logs", run_id, "--project", args.project, "--tail", str(args.tail)], timeout=30)
 
 
 class AgentRunCLI:
@@ -177,6 +218,7 @@ class AgentRunCLI:
         timeout: int | None,
         quiet_success: bool = False,
         silent: bool = False,
+        isolate_interrupt: bool = False,
     ) -> int:
         env = os.environ.copy()
         env["PYTHONPATH"] = str(self.pythonpath) + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
@@ -192,6 +234,9 @@ class AgentRunCLI:
         if self.json_output:
             cmd.append("--json")
         cmd.extend(args)
+        capture = quiet_success or silent
+        if isolate_interrupt:
+            return self._run_isolated(cmd, env=env, timeout=timeout, capture=capture, silent=silent, args=args)
         try:
             proc = subprocess.run(
                 cmd,
@@ -200,7 +245,7 @@ class AgentRunCLI:
                 text=True,
                 timeout=timeout,
                 check=False,
-                capture_output=quiet_success or silent,
+                capture_output=capture,
             )
         except subprocess.TimeoutExpired:
             if not silent:
@@ -213,6 +258,54 @@ class AgentRunCLI:
                 print(proc.stdout, end="")
             if proc.stderr:
                 print(proc.stderr, end="", file=sys.stderr)
+        return proc.returncode
+
+    def _run_isolated(
+        self,
+        cmd: list[str],
+        *,
+        env: dict[str, str],
+        timeout: int | None,
+        capture: bool,
+        silent: bool,
+        args: list[str],
+    ) -> int:
+        proc = subprocess.Popen(
+            cmd,
+            cwd=ROOT,
+            env=env,
+            text=True,
+            stdout=subprocess.PIPE if capture else None,
+            stderr=subprocess.PIPE if capture else None,
+            start_new_session=True,
+        )
+        try:
+            stdout, stderr = proc.communicate(timeout=timeout)
+        except KeyboardInterrupt:
+            proc.terminate()
+            try:
+                proc.communicate(timeout=3)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.communicate()
+            raise
+        except subprocess.TimeoutExpired:
+            proc.terminate()
+            try:
+                stdout, stderr = proc.communicate(timeout=3)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                stdout, stderr = proc.communicate()
+            if not silent:
+                print(f"agentrun 命令超时: {' '.join(args)}", file=sys.stderr)
+            return 124
+        if silent:
+            return proc.returncode
+        if capture and proc.returncode != 0:
+            if stdout:
+                print(stdout, end="")
+            if stderr:
+                print(stderr, end="", file=sys.stderr)
         return proc.returncode
 
 
