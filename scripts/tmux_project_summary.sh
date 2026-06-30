@@ -1,16 +1,15 @@
 #!/usr/bin/env bash
-# 通过 AgentRun tmux session 投递一句话到真实 CLI runtime。
+# 直接用 tmux 启动 CLI runtime，并投递一句项目总结请求。
 
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-AGENTRUN_APP="$ROOT_DIR/apps/agentrun"
-CONF_DIR="$ROOT_DIR/config/agentrun"
-RUNS_DIR="$ROOT_DIR/runs/agentrun"
-PROJECT="${AGENTRUN_TMUX_PROJECT:-agent}"
 PROFILE="${AGENTRUN_TMUX_PROFILE:-tmux-codex}"
-RUN_ID="${AGENTRUN_TMUX_RUN_ID:-session-project-summary-$(date +%Y%m%d-%H%M%S)-$$}"
+SESSION="${AGENTRUN_TMUX_SESSION:-agent-project-summary}"
+WINDOW="${AGENTRUN_TMUX_WINDOW:-summary-$(date +%Y%m%d-%H%M%S)}"
 PROMPT="看下当前项目实现了什么"
+COMMAND="${AGENTRUN_TMUX_COMMAND:-}"
+ATTACH=1
 DRY_RUN=0
 
 usage() {
@@ -19,12 +18,20 @@ usage() {
   scripts/tmux_project_summary.sh
   scripts/tmux_project_summary.sh "看下当前项目实现了什么"
   scripts/tmux_project_summary.sh --profile tmux-claude "看下当前项目实现了什么"
+  scripts/tmux_project_summary.sh --no-attach
   scripts/tmux_project_summary.sh --dry-run
 
+默认行为：
+  1. 启动 tmux session/window
+  2. 在窗口里运行 codex
+  3. 输入“看下当前项目实现了什么”
+  4. attach 到当前终端，让你直接看到 tmux 会话
+
 环境变量：
-  AGENTRUN_TMUX_PROJECT   默认 agent
-  AGENTRUN_TMUX_PROFILE   默认 tmux-codex
-  AGENTRUN_TMUX_RUN_ID    默认自动生成
+  AGENTRUN_TMUX_PROFILE   默认 tmux-codex；tmux-claude 会运行 claude
+  AGENTRUN_TMUX_COMMAND   覆盖实际命令，例如 codex 或 claude
+  AGENTRUN_TMUX_SESSION   默认 agent-project-summary
+  AGENTRUN_TMUX_WINDOW    默认 summary-<timestamp>
 EOF
 }
 
@@ -38,16 +45,28 @@ while [ "$#" -gt 0 ]; do
       DRY_RUN=1
       shift
       ;;
+    --no-attach)
+      ATTACH=0
+      shift
+      ;;
+    --attach)
+      ATTACH=1
+      shift
+      ;;
     --profile)
       PROFILE="${2:?--profile 需要 profile id，例如 tmux-codex}"
       shift 2
       ;;
-    --project)
-      PROJECT="${2:?--project 需要 project id}"
+    --command)
+      COMMAND="${2:?--command 需要可执行命令，例如 codex}"
       shift 2
       ;;
-    --run-id)
-      RUN_ID="${2:?--run-id 需要 run id}"
+    --session)
+      SESSION="${2:?--session 需要 tmux session 名}"
+      shift 2
+      ;;
+    --window)
+      WINDOW="${2:?--window 需要 tmux window 名}"
       shift 2
       ;;
     --)
@@ -67,64 +86,28 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
-if [ -x "$ROOT_DIR/.venv/bin/python3" ]; then
-  PYTHON_BIN="$ROOT_DIR/.venv/bin/python3"
-elif [ -x "$ROOT_DIR/../.venv/bin/python3" ]; then
-  PYTHON_BIN="$ROOT_DIR/../.venv/bin/python3"
-else
-  PYTHON_BIN="${PYTHON_BIN:-python3}"
+if [ -z "$COMMAND" ]; then
+  case "$PROFILE" in
+    tmux-claude) COMMAND="claude" ;;
+    tmux-codex|*) COMMAND="codex" ;;
+  esac
 fi
 
-run_agentrun() {
-  PYTHONPATH="$AGENTRUN_APP${PYTHONPATH:+:$PYTHONPATH}" \
-    "$PYTHON_BIN" -m agentrun.cli.main \
-    --conf-dir "$CONF_DIR" \
-    --runs-dir "$RUNS_DIR" \
-    --json \
-    "$@"
-}
-
-json_value() {
-  local json_input
-  json_input="$(cat)"
-  JSON_INPUT="$json_input" "$PYTHON_BIN" - "$1" <<'PY'
-import json
-import os
-import sys
-
-key = sys.argv[1]
-data = json.loads(os.environ.get("JSON_INPUT") or "{}")
-value = data.get(key, "")
-print("" if value is None else value)
-PY
-}
-
-json_ok() {
-  local json_input
-  json_input="$(cat)"
-  JSON_INPUT="$json_input" "$PYTHON_BIN" - <<'PY'
-import json
-import os
-import sys
-
-data = json.loads(os.environ.get("JSON_INPUT") or "{}")
-raise SystemExit(0 if data.get("ok") else 1)
-PY
-}
-
-echo "runtime: tmux"
+echo "tmux_session: $SESSION"
+echo "tmux_window: $WINDOW"
 echo "profile: $PROFILE"
-echo "project: $PROJECT"
-echo "run_id: $RUN_ID"
+echo "command: $COMMAND"
+echo "cwd: $ROOT_DIR"
 echo "prompt: $PROMPT"
 
 if [ "$DRY_RUN" -eq 1 ]; then
   cat <<EOF
 
 dry-run，不会启动 tmux。
-实际执行会先验证 profile，然后运行：
-  agentrun session start --project "$PROJECT" --profile "$PROFILE" --run-id "$RUN_ID" --cwd "$ROOT_DIR"
-  agentrun session send "$RUN_ID" --project "$PROJECT" --text "$PROMPT"
+实际执行会运行：
+  tmux new-session/new-window -d -s "$SESSION" -n "$WINDOW" -c "$ROOT_DIR" "$COMMAND"
+  tmux paste-buffer ... "$PROMPT"
+  tmux attach -t "$SESSION"
 EOF
   exit 0
 fi
@@ -134,35 +117,58 @@ if ! command -v tmux >/dev/null 2>&1; then
   exit 1
 fi
 
-echo ""
-echo "验证 tmux profile..."
-validate_json="$(run_agentrun config validate --project "$PROJECT" --profile "$PROFILE")"
-if ! printf '%s' "$validate_json" | json_ok; then
-  echo "profile 验证失败：" >&2
-  printf '%s\n' "$validate_json" >&2
+if ! command -v "$COMMAND" >/dev/null 2>&1; then
+  echo "命令不可用：$COMMAND" >&2
   exit 1
 fi
 
-echo "启动 tmux session..."
-start_json="$(run_agentrun session start --project "$PROJECT" --profile "$PROFILE" --run-id "$RUN_ID" --cwd "$ROOT_DIR" --force)"
-tmux_session="$(printf '%s' "$start_json" | json_value session)"
-pane_id="$(printf '%s' "$start_json" | json_value pane_id)"
+if tmux has-session -t "$SESSION" 2>/dev/null; then
+  pane_id="$(tmux new-window -d -t "$SESSION" -n "$WINDOW" -P -F '#{pane_id}' -c "$ROOT_DIR" "$COMMAND")"
+else
+  pane_id="$(tmux new-session -d -s "$SESSION" -n "$WINDOW" -P -F '#{pane_id}' -c "$ROOT_DIR" "$COMMAND")"
+fi
 
-echo "投递 prompt..."
-run_agentrun session send "$RUN_ID" --project "$PROJECT" --text "$PROMPT" >/dev/null
+if [ -z "$pane_id" ]; then
+  echo "tmux 未返回 pane_id，启动失败。" >&2
+  exit 1
+fi
+
+deadline=$((SECONDS + 20))
+while [ "$SECONDS" -lt "$deadline" ]; do
+  if tmux list-panes -a -F '#{pane_id}' 2>/dev/null | grep -Fxq "$pane_id"; then
+    break
+  fi
+  sleep 0.2
+done
+
+if ! tmux list-panes -a -F '#{pane_id}' 2>/dev/null | grep -Fxq "$pane_id"; then
+  echo "tmux pane 已退出，无法投递 prompt：$pane_id" >&2
+  exit 1
+fi
+
+# 给 TUI 一点初始化时间；如果还在加载，paste 也会进入当前输入缓冲。
+sleep 1
+buffer="project-summary-$$"
+printf '%s' "$PROMPT" | tmux load-buffer -b "$buffer" -
+tmux paste-buffer -d -b "$buffer" -t "$pane_id"
+tmux send-keys -t "$pane_id" C-m
 
 cat <<EOF
 
-已投递到 tmux runtime。
-tmux_session: ${tmux_session:-agentrun}
-pane_id: ${pane_id:-unknown}
+已投递到 tmux。
+pane_id: $pane_id
 
 查看窗口：
-  tmux attach -t ${tmux_session:-agentrun}
+  tmux attach -t "$SESSION"
 
-查看状态：
-  PYTHONPATH=apps/agentrun python3 -m agentrun.cli.main --conf-dir config/agentrun --runs-dir runs/agentrun --json session status "$RUN_ID" --project "$PROJECT"
-
-查看日志：
-  PYTHONPATH=apps/agentrun python3 -m agentrun.cli.main --conf-dir config/agentrun --runs-dir runs/agentrun --json session logs "$RUN_ID" --project "$PROJECT" --tail 120
+停止会话：
+  tmux kill-session -t "$SESSION"
 EOF
+
+if [ "$ATTACH" -eq 1 ]; then
+  if [ -n "${TMUX:-}" ]; then
+    tmux switch-client -t "$SESSION:$WINDOW"
+  else
+    tmux attach -t "$SESSION"
+  fi
+fi
