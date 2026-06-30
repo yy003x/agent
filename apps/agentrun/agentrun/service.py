@@ -238,7 +238,12 @@ class RuntimeService:
             {"run_type": SESSION, "project_id": project, "run_dir": str(paths.run_dir), "state": PENDING},
         )
         provider = self._provider_for(profile)
-        start = provider.start_session(request, paths)
+        try:
+            start = provider.start_session(request, paths)
+        except Exception:
+            final = read_status(paths) or {}
+            self.registry.update(actual_run_id, state=final.get("state", "failed"))
+            raise
         self.registry.update(actual_run_id, state=RUNNING)
         return {
             "run_id": actual_run_id,

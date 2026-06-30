@@ -71,6 +71,9 @@ class TmuxProvider:
         self.prompt_ready_settle = float(raw.get("prompt_ready_settle_seconds", raw.get("ready_settle_seconds", 2)))
         self.prompt_ready_settle_fast = float(raw.get("prompt_ready_settle_fast_seconds", 0.5))
         self.prompt_stable_timeout = float(raw.get("prompt_stable_timeout_seconds", 10))
+        self.session_wait_ready = _bool(raw.get("session_wait_ready"), True)
+        self.session_ready_timeout = float(raw.get("session_ready_timeout_seconds", 30))
+        self.session_ready_settle = float(raw.get("session_ready_settle_seconds", raw.get("ready_settle_seconds", 2)))
         self.silence_threshold = float(raw.get("silence_threshold_seconds", 0.6))
         self.output_rate_window = int(raw.get("output_rate_window_seconds", 5))
         self.tail_bytes = int(raw.get("tail_bytes", 1 << 20))
@@ -297,13 +300,103 @@ class TmuxProvider:
         except Exception:
             self._close(pane_id, identity)
             raise
+        ready_status = self._wait_session_ready(request, paths, identity)
         return {
             "session": self.session,
             "window_id": window_id,
             "window_name": window_name,
             "pane_id": pane_id,
             "attach": f"tmux attach -t {self.session}",
+            "ready": bool(ready_status.get("session_ready")),
+            "ready_reason": ready_status.get("session_ready_reason"),
+            "ready_wait_seconds": ready_status.get("session_ready_wait_seconds"),
         }
+
+    def _wait_session_ready(self, request: RunRequest, paths: RunPaths, identity: PaneIdentity) -> dict[str, Any]:
+        started = monotonic()
+        if not self.session_wait_ready or self.session_ready_timeout <= 0:
+            status = self._sample_status(request, paths, identity=identity, write=False)
+            status.update(
+                {
+                    "session_ready": False,
+                    "session_ready_reason": "disabled",
+                    "session_ready_wait_seconds": 0,
+                }
+            )
+            write_status(paths, request, RUNNING, provider_status=status, message="tmux session running")
+            return status
+
+        deadline = started + self.session_ready_timeout
+        last_size = -1
+        stable_since = monotonic()
+        while monotonic() < deadline:
+            if not self._pane_matches(identity):
+                status = self._sample_status(request, paths, identity=identity, write=False)
+                status.update(
+                    {
+                        "session_ready": False,
+                        "session_ready_reason": "exited_before_ready",
+                        "session_ready_wait_seconds": round(monotonic() - started, 3),
+                    }
+                )
+                write_status(
+                    paths,
+                    request,
+                    "failed",
+                    failure_reason="exited",
+                    provider_status=status,
+                    message="tmux session 在就绪前退出",
+                )
+                raise TmuxError("tmux pane exited before session ready")
+
+            size = _file_size(paths.output_log)
+            now = monotonic()
+            if size != last_size:
+                last_size = size
+                stable_since = now
+
+            status = self._sample_status(request, paths, identity=identity, write=False)
+            if size > 0 and now - stable_since >= self.session_ready_settle:
+                status.update(
+                    {
+                        "session_ready": True,
+                        "session_ready_reason": "output_stable",
+                        "session_ready_wait_seconds": round(now - started, 3),
+                    }
+                )
+                write_status(paths, request, RUNNING, provider_status=status, message="tmux session ready")
+                return status
+
+            status.update(
+                {
+                    "session_ready": False,
+                    "session_ready_reason": "waiting_for_output_stable" if size > 0 else "waiting_for_output",
+                    "session_ready_wait_seconds": round(now - started, 3),
+                }
+            )
+            write_status(paths, request, RUNNING, provider_status=status, message="tmux session starting")
+            time.sleep(self.poll)
+
+        status = self._sample_status(request, paths, identity=identity, write=False)
+        status.update(
+            {
+                "session_ready": False,
+                "session_ready_reason": "session_ready_timeout",
+                "session_ready_wait_seconds": round(monotonic() - started, 3),
+            }
+        )
+        write_status(
+            paths,
+            request,
+            "failed",
+            failure_reason="timeout",
+            provider_status=status,
+            message="tmux session 就绪等待超时",
+        )
+        raise TmuxError(
+            f"tmux session did not become ready; output_log={paths.output_log} "
+            f"timeout_seconds={self.session_ready_timeout}"
+        )
 
     def send(self, paths: RunPaths, text: str, submit: bool = True) -> dict[str, Any]:
         identity = self._identity_from_status(paths)
@@ -359,6 +452,8 @@ class TmuxProvider:
             "window_id": ps.get("window_id"),
             "window_name": ps.get("window_name"),
             "pane_id": ps.get("pane_id"),
+            "session_ready": ps.get("session_ready"),
+            "session_ready_reason": ps.get("session_ready_reason"),
         }
 
     # ---------- tmux 原语 ----------
@@ -519,6 +614,7 @@ class TmuxProvider:
         *,
         identity: PaneIdentity | None = None,
         write: bool = True,
+        message: str = "tmux task running",
     ) -> dict[str, Any]:
         now = time.time()
         previous = self._provider_status(paths)
@@ -608,7 +704,7 @@ class TmuxProvider:
         if previous.get("command_file"):
             status["command_file"] = previous["command_file"]
         if write:
-            write_status(paths, request, RUNNING, provider_status=status, message="tmux task running")
+            write_status(paths, request, RUNNING, provider_status=status, message=message)
         return status
 
     def _reset_detector(self, request: RunRequest, paths: RunPaths, *, identity: PaneIdentity | None, reason: str) -> None:
@@ -751,6 +847,16 @@ def _idle_params(raw: dict[str, Any], key: str, default: IdleTickParams) -> Idle
         text_density=int(value.get("text_density", default.text_density)),
         text_max_lines=int(value.get("text_max_lines", default.text_max_lines)),
     )
+
+
+def _bool(value: Any, default: bool) -> bool:
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() not in {"0", "false", "no", "off", ""}
+    return bool(value)
 
 
 def _calc_required_idle_ticks(burst_bytes: int, params: IdleTickParams) -> int:

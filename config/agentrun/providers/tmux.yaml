@@ -9,6 +9,9 @@ defaults:
   prompt_ready_settle_seconds: 2
   prompt_ready_settle_fast_seconds: 0.5
   prompt_stable_timeout_seconds: 10
+  session_wait_ready: true
+  session_ready_timeout_seconds: 30
+  session_ready_settle_seconds: 2
   silence_threshold_seconds: 0.6
   output_rate_window_seconds: 5
   tail_bytes: 1048576

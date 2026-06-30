@@ -26,7 +26,7 @@ usage() {
 
 说明：
   这是 AgentRun tmux runtime 的测试脚本。脚本不直接配置 tmux 启动参数；
-  tmux session/window 创建、命令启动、日志读取都通过 AgentRun 完成。
+  tmux session/window 创建、命令启动、TUI 就绪等待、日志读取都通过 AgentRun 完成。
 EOF
 }
 
@@ -202,6 +202,8 @@ dry-run，不会启动 tmux。
   agentrun session start --project "$PROJECT" --profile "$PROFILE" --run-id "$RUN_ID" --cwd "$ROOT_DIR" --force
   agentrun session send "$RUN_ID" --project "$PROJECT" --text "$PROMPT"
   agentrun session logs "$RUN_ID" --project "$PROJECT" --tail 120
+
+其中 session start 会使用 AgentRun tmux profile 的默认参数，等待 TUI 输出稳定后返回。
 EOF
   exit 0
 fi
@@ -225,6 +227,8 @@ start_json="$(run_agentrun session start --project "$PROJECT" --profile "$PROFIL
 tmux_session="$(printf '%s' "$start_json" | json_get session)"
 window_name="$(printf '%s' "$start_json" | json_get window_name)"
 pane_id="$(printf '%s' "$start_json" | json_get pane_id)"
+ready="$(printf '%s' "$start_json" | json_get ready)"
+ready_reason="$(printf '%s' "$start_json" | json_get ready_reason)"
 validate_tmux_session_name "$tmux_session"
 
 echo "通过 AgentRun 投递 prompt..."
@@ -240,6 +244,8 @@ cat <<EOF
 tmux_session: $tmux_session
 tmux_window: $window_name
 pane_id: $pane_id
+ready: $ready
+ready_reason: $ready_reason
 
 tmux 常用命令：
   tmux ls

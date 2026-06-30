@@ -15,7 +15,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from agentrun.core.config import Profile
-from agentrun.core.contract import write_status
+from agentrun.core.contract import read_status, write_status
 from agentrun.core.rundir import run_paths
 from agentrun.core.run import RUNNING, SESSION, TASK, RunRequest
 from agentrun.providers.tmux import TmuxProvider
@@ -39,7 +39,13 @@ def _script(body: str, d: Path) -> Path:
 
 
 def _profile(binary: str, session: str, **extra) -> Profile:
-    raw = {"tmux_session_name": session, "prompt_delivery": "none", **extra}
+    raw = {
+        "tmux_session_name": session,
+        "prompt_delivery": "none",
+        "session_ready_timeout_seconds": 2,
+        "session_ready_settle_seconds": 0.05,
+        **extra,
+    }
     return Profile("tmux-x", "tmux", "x", binary, [], extra.get("timeout", 15), "optional", raw=raw)
 
 
@@ -118,8 +124,11 @@ class TmuxTest(unittest.TestCase):
                 start = provider.start_session(req, paths)
                 self.assertIn("pane_id", start)
                 self.assertIn("window_id", start)
+                self.assertTrue(start["ready"])
+                self.assertEqual(start["ready_reason"], "output_stable")
                 st = provider.session_status(paths)
                 self.assertTrue(st["alive"])  # pane 身份四元组匹配=alive
+                self.assertTrue(st["session_ready"])
                 import time
 
                 logs = ""
@@ -146,6 +155,34 @@ class TmuxTest(unittest.TestCase):
                 self.assertFalse(st2["alive"])  # stop 后 pane 不在
                 with self.assertRaises(TmuxError):
                     provider.send(paths, "echo should-not-send", submit=True)
+            finally:
+                provider.stop(paths)
+
+    def test_session_start_fails_when_tui_never_outputs(self) -> None:
+        with tempfile.TemporaryDirectory() as t:
+            d = Path(t)
+            script = _script("exec sleep 5\n", d)
+            session = _session()
+            paths = run_paths(d / "runs", "_default", SESSION, "sess-no-output").ensure()
+            req = RunRequest(
+                run_type=SESSION, run_id="sess-no-output", provider_profile="tmux-x", provider="tmux", cwd=d,
+            )
+            provider = TmuxProvider(
+                _profile(
+                    str(script),
+                    session,
+                    session_ready_timeout_seconds=0.2,
+                    session_ready_settle_seconds=0.01,
+                    poll_interval_seconds=0.05,
+                )
+            )
+            try:
+                with self.assertRaises(TmuxError):
+                    provider.start_session(req, paths)
+                status = read_status(paths) or {}
+                self.assertEqual(status["state"], "failed")
+                self.assertEqual(status["failure_reason"], "timeout")
+                self.assertEqual(status["provider_status"]["session_ready_reason"], "session_ready_timeout")
             finally:
                 provider.stop(paths)
 
