@@ -135,12 +135,18 @@ def run_tmux(
     if args.force:
         start_cmd.append("--force")
     quiet_success = not args.json
-    code = cli.run(start_cmd, timeout=120, quiet_success=quiet_success)
-    if code != 0:
-        return code
+    started = False
+    try:
+        code = cli.run(start_cmd, timeout=120, quiet_success=quiet_success)
+        if code != 0:
+            return code
+        started = True
 
-    send_cmd = ["session", "send", run_id, "--project", args.project, "--text", prompt]
-    return cli.run(send_cmd, timeout=30, quiet_success=quiet_success)
+        send_cmd = ["session", "send", run_id, "--project", args.project, "--text", prompt]
+        return cli.run(send_cmd, timeout=30, quiet_success=quiet_success)
+    finally:
+        if started:
+            cli.run(["session", "stop", run_id, "--project", args.project], timeout=30, silent=True)
 
 
 class AgentRunCLI:
@@ -150,7 +156,14 @@ class AgentRunCLI:
         self.json_output = json_output
         self.pythonpath = _agentrun_pythonpath()
 
-    def run(self, args: list[str], *, timeout: int | None, quiet_success: bool = False) -> int:
+    def run(
+        self,
+        args: list[str],
+        *,
+        timeout: int | None,
+        quiet_success: bool = False,
+        silent: bool = False,
+    ) -> int:
         env = os.environ.copy()
         env["PYTHONPATH"] = str(self.pythonpath) + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
         cmd = [
@@ -173,11 +186,14 @@ class AgentRunCLI:
                 text=True,
                 timeout=timeout,
                 check=False,
-                capture_output=quiet_success,
+                capture_output=quiet_success or silent,
             )
         except subprocess.TimeoutExpired:
-            print(f"agentrun 命令超时: {' '.join(args)}", file=sys.stderr)
+            if not silent:
+                print(f"agentrun 命令超时: {' '.join(args)}", file=sys.stderr)
             return 124
+        if silent:
+            return proc.returncode
         if quiet_success and proc.returncode != 0:
             if proc.stdout:
                 print(proc.stdout, end="")
