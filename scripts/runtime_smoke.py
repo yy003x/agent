@@ -77,7 +77,7 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser.add_argument("--run-id", default="", help="指定 run_id;默认自动生成")
     parser.add_argument("--deadline-seconds", type=int, default=300, help="cli/api task 超时时间")
     parser.add_argument("--tmux-wait-seconds", type=int, default=DEFAULT_TMUX_WAIT_SECONDS, help="tmux watch 秒数;0 表示持续监控")
-    parser.add_argument("--tail", type=int, default=120, help="tmux watch/logs 行数")
+    parser.add_argument("--tail", type=int, default=120, help="watch 内部读取行数;默认不展示")
     parser.add_argument("--poll-seconds", type=float, default=1.0, help="tmux watch 轮询秒数")
     parser.add_argument("--force", action="store_true", help="透传 AgentRun --force")
     parser.add_argument("--json", action="store_true", help="透传 AgentRun --json")
@@ -152,15 +152,17 @@ def run_tmux(
     started = False
     try:
         cleanup = True
-        code = cli.run(start_cmd, timeout=120, isolate_interrupt=True)
+        code = cli.run(start_cmd, timeout=120, quiet_success=True, isolate_interrupt=True)
         if code != 0:
             return code
         started = True
 
         send_cmd = ["session", "send", run_id, "--project", args.project, "--text", prompt]
-        code = cli.run(send_cmd, timeout=30, isolate_interrupt=True)
+        code = cli.run(send_cmd, timeout=30, quiet_success=True, isolate_interrupt=True)
         if code != 0:
             return code
+        if not args.json:
+            print("AgentRun runtime 已启动并投递输入。按 Ctrl+C 返回 result 并关闭 session。", flush=True)
 
         wait_seconds = max(int(args.tmux_wait_seconds), 0)
         watch_cmd = [
@@ -176,13 +178,13 @@ def run_tmux(
         ]
         if wait_seconds > 0:
             watch_cmd.extend(["--seconds", str(wait_seconds)])
-        code = cli.run(watch_cmd, timeout=wait_seconds + 15 if wait_seconds > 0 else None, isolate_interrupt=True)
+        code = cli.run(watch_cmd, timeout=wait_seconds + 15 if wait_seconds > 0 else None, silent=True, isolate_interrupt=True)
         if code != 0:
             return code
         emit_tmux_result(cli, args, run_id)
         return 0
     except KeyboardInterrupt:
-        print("\n收到 Ctrl+C,正在返回当前结果并关闭 tmux session。", file=sys.stderr)
+        print("\n收到 Ctrl+C,正在返回当前 result 并关闭 session。", file=sys.stderr)
         if started:
             emit_tmux_result(cli, args, run_id)
         return 130
@@ -198,10 +200,7 @@ def emit_tmux_result(cli: "AgentRunCLI", args: argparse.Namespace, run_id: str) 
     if result_file.is_file():
         print(result_file.read_text(encoding="utf-8").rstrip())
         return
-    print(f"result.json 尚未生成: {result_file}")
-    print("")
-    print("== AgentRun logs ==", flush=True)
-    cli.run(["session", "logs", run_id, "--project", args.project, "--tail", str(args.tail)], timeout=30)
+    print("result.json 尚未生成")
 
 
 class AgentRunCLI:
@@ -237,16 +236,20 @@ class AgentRunCLI:
         capture = quiet_success or silent
         if isolate_interrupt:
             return self._run_isolated(cmd, env=env, timeout=timeout, capture=capture, silent=silent, args=args)
+        run_kwargs = {
+            "cwd": ROOT,
+            "env": env,
+            "text": True,
+            "timeout": timeout,
+            "check": False,
+        }
+        if silent:
+            run_kwargs["stdout"] = subprocess.DEVNULL
+            run_kwargs["stderr"] = subprocess.DEVNULL
+        else:
+            run_kwargs["capture_output"] = capture
         try:
-            proc = subprocess.run(
-                cmd,
-                cwd=ROOT,
-                env=env,
-                text=True,
-                timeout=timeout,
-                check=False,
-                capture_output=capture,
-            )
+            proc = subprocess.run(cmd, **run_kwargs)
         except subprocess.TimeoutExpired:
             if not silent:
                 print(f"agentrun 命令超时: {' '.join(args)}", file=sys.stderr)
@@ -275,8 +278,8 @@ class AgentRunCLI:
             cwd=ROOT,
             env=env,
             text=True,
-            stdout=subprocess.PIPE if capture else None,
-            stderr=subprocess.PIPE if capture else None,
+            stdout=subprocess.DEVNULL if silent else subprocess.PIPE if capture else None,
+            stderr=subprocess.DEVNULL if silent else subprocess.PIPE if capture else None,
             start_new_session=True,
         )
         try:
