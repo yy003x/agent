@@ -152,7 +152,6 @@ check "scripts/workbench_service.py 存在" "test -f scripts/workbench_service.p
 check "scripts/model_backend_smoke.py 存在" "test -f scripts/model_backend_smoke.py"
 check "scripts/workbench_smoke.py 存在" "test -f scripts/workbench_smoke.py"
 check "scripts/runtime_smoke.py 存在" "test -f scripts/runtime_smoke.py"
-check "scripts/cli_runtime_smoke.py 存在" "test -f scripts/cli_runtime_smoke.py"
 check "apps/*/app.json 存在" "if find apps -mindepth 2 -maxdepth 2 -name app.json -print -quit | grep -q .; then test -f apps/agentrun/app.json && test -f apps/api/app.json && test -f apps/content-runtime/app.json && test -f apps/scheduler/app.json && test -f apps/state-sync/app.json && test -f apps/web/app.json && test -f apps/agent-memory/app.json && test -f apps/workflows/app.json; else true; fi"
 check "scheduler jobs.json 存在" "test -f \"$SCHEDULER_JOBS_FILE\""
 check "无旧版本/历史包袱残留" "command -v rg && ! rg -n 'apps/workbench|apps/agent(/|$)|legacy-tmux|replace-legacy-tmux|/api/runtime/tmux|legacy|兼容|旧版|旧实现|旧启动|旧命令|历史|旧|迁移|P6|migration|fallback|allowed_providers' Makefile scripts apps skills design rules requirements.txt AGENTS.md memory --glob '!scripts/validate.sh' --glob '!apps/*/build/**' --glob '!apps/web/package-lock.json' --glob '!apps/web/node_modules/**' --glob '!apps/web/dist/**'"
@@ -223,7 +222,6 @@ check "workbench_smoke.py --help 可执行" "python3 scripts/workbench_smoke.py 
 check "model_backend_smoke.py --help 可执行" "python3 scripts/model_backend_smoke.py --help"
 check "model_backend_smoke.py --list 可执行" "python3 scripts/model_backend_smoke.py --list"
 check "runtime_smoke.py --help 可执行" "python3 scripts/runtime_smoke.py --help"
-check "cli_runtime_smoke.py --help 可执行" "python3 scripts/cli_runtime_smoke.py --help"
 
 echo ""
 echo "[agentrun]"
