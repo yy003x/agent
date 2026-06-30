@@ -98,14 +98,13 @@ class OpenBoxTest(unittest.TestCase):
             paths = run_paths(root / "runs", "p1", TASK, out["run_id"])
             self.assertEqual(read_json(paths.request_file)["provider_profile"], "project-cli")
 
-    def test_fixed_provider_files_build_profiles(self) -> None:
+    def test_root_provider_files_build_profiles(self) -> None:
         with tempfile.TemporaryDirectory() as d:
             root = Path(d)
             conf = root / "conf"
-            providers = conf / "providers"
-            providers.mkdir(parents=True)
+            conf.mkdir(parents=True)
             (conf / "runtime.yaml").write_text("default_profile: cx-local\n", encoding="utf-8")
-            (providers / "api.yaml").write_text(
+            (conf / "api.yaml").write_text(
                 "openai:\n"
                 "  protocol: openai\n"
                 "  base_url: https://llm.example.test/v1\n"
@@ -118,7 +117,7 @@ class OpenBoxTest(unittest.TestCase):
                 "      label: Model X\n",
                 encoding="utf-8",
             )
-            (providers / "cli.yaml").write_text(
+            (conf / "cli.yaml").write_text(
                 "codex:\n"
                 "  profile: cx-local\n"
                 "  command: codex-dev\n"
@@ -128,7 +127,7 @@ class OpenBoxTest(unittest.TestCase):
                 "  env_passthrough: [PATH]\n",
                 encoding="utf-8",
             )
-            (providers / "tmux.yaml").write_text(
+            (conf / "tmux.yaml").write_text(
                 "defaults:\n"
                 "  session_name: runtime-test\n"
                 "claude:\n"
@@ -163,16 +162,16 @@ class OpenBoxTest(unittest.TestCase):
     def test_cwd_conf_provider_files_are_loaded_by_default(self) -> None:
         with tempfile.TemporaryDirectory() as d:
             root = Path(d)
-            providers = root / "conf" / "providers"
-            providers.mkdir(parents=True)
-            (providers / "cli.yaml").write_text(
+            conf = root / "conf"
+            conf.mkdir(parents=True)
+            (conf / "cli.yaml").write_text(
                 "codex:\n"
                 "  profile: cx-auto\n"
                 "  command: codex-auto\n"
                 "  args: [exec, --fast]\n",
                 encoding="utf-8",
             )
-            (providers / "api.yaml").write_text(
+            (conf / "api.yaml").write_text(
                 "auto:\n"
                 "  protocol: openai\n"
                 "  base_url: https://auto.example.test/v1\n"
@@ -182,7 +181,7 @@ class OpenBoxTest(unittest.TestCase):
                 "      model: auto-model\n",
                 encoding="utf-8",
             )
-            (providers / "tmux.yaml").write_text(
+            (conf / "tmux.yaml").write_text(
                 "session_name: auto-session\n",
                 encoding="utf-8",
             )
@@ -219,11 +218,14 @@ class OpenBoxTest(unittest.TestCase):
 
 
 class ProjectConfigTest(unittest.TestCase):
-    def test_project_config_lives_under_config_agentrun(self) -> None:
+    def test_project_config_only_keeps_provider_files(self) -> None:
         conf = _PROJECT_ROOT / "config" / "agentrun"
-        self.assertTrue((conf / "runtime.yaml").is_file())
+        self.assertEqual(
+            sorted(path.relative_to(conf).as_posix() for path in conf.rglob("*") if path.is_file()),
+            ["api.yaml", "cli.yaml", "tmux.yaml"],
+        )
         for name in ("api", "cli", "tmux"):
-            self.assertTrue((conf / "providers" / f"{name}.yaml").is_file())
+            self.assertTrue((conf / f"{name}.yaml").is_file())
 
     def test_builtin_schemas_shipped_as_resources(self) -> None:
         schemas = resources.files("agentrun") / "schemas"

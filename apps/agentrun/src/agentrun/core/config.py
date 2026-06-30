@@ -1,6 +1,7 @@
 """ConfigManager:项目配置 + 调用方覆盖 + fail-fast(见 design/06 A)。
 
 合并顺序:config/agentrun ← AGENTRUN_CONF_DIR/当前目录 conf ← project overlay ← run 参数。
+provider 配置优先使用配置根目录下 api.yaml/cli.yaml/tmux.yaml,同时读取 providers/ 子目录以覆盖既有调用方。
 本模块负责静态配置;env 注入在 provider 层执行。
 """
 from __future__ import annotations
@@ -82,19 +83,22 @@ class ConfigManager:
                 raw = self._load_profiles_file(overlay, out, optional_profiles=True)
                 self._apply_simplified_profiles(raw, out)
         if not out:
-            raise ConfigError("未加载到任何 profile(检查 config/agentrun/providers/api.yaml|cli.yaml|tmux.yaml)")
+            raise ConfigError("未加载到任何 profile(检查 config/agentrun/api.yaml|cli.yaml|tmux.yaml)")
         return out
-
-    def _provider_dirs(self) -> list[Path]:
-        return [directory / "providers" for directory in self._config_dirs]
 
     def _merge_provider_yaml(self, name: str) -> dict[str, Any]:
         merged: dict[str, Any] = {}
-        for directory in self._provider_dirs():
-            path = directory / name
+        for path in self._provider_file_candidates(name):
             if path.exists():
                 _deep_merge(merged, load_yaml(path) or {})
         return merged
+
+    def _provider_file_candidates(self, name: str) -> list[Path]:
+        candidates: list[Path] = []
+        for directory in self._config_dirs:
+            candidates.append(directory / "providers" / name)
+            candidates.append(directory / name)
+        return candidates
 
     def _project_overlay_paths(self, project_id: str) -> list[Path]:
         return [directory / "projects" / f"{project_id}.runtime.yaml" for directory in self._config_dirs]
