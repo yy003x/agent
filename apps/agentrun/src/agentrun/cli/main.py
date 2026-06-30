@@ -252,7 +252,7 @@ def _watch_run(rt: AgentRuntime, args: argparse.Namespace, *, run_type: str, inc
         elif delta:
             if event_delta:
                 print(_format_events(event_delta), end="", flush=True)
-            print(delta, end="", flush=True)
+            print(_format_log_delta_for_terminal(delta), end="", flush=True)
         elif event_delta:
             print(_format_events(event_delta), end="", flush=True)
 
@@ -289,6 +289,18 @@ def _format_events(events: list[dict[str, Any]]) -> str:
         detail = json.dumps(data, ensure_ascii=False) if data else "{}"
         lines.append(f"[agentrun event #{seq}] {event_type} {detail}")
     return "\n".join(lines) + ("\n" if lines else "")
+
+
+def _format_log_delta_for_terminal(delta: str) -> str:
+    rendered: list[str] = []
+    for line in delta.splitlines(keepends=True):
+        if line.startswith("[stdout] "):
+            rendered.append("[cli-log] " + line[len("[stdout] "):])
+        elif line.startswith("[stderr] "):
+            rendered.append("[cli-log] " + line[len("[stderr] "):])
+        else:
+            rendered.append(line)
+    return "".join(rendered)
 
 
 def _log_delta(previous: str, current: str) -> str:

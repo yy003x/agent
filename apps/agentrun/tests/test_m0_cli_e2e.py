@@ -25,6 +25,13 @@ def _script(d: Path) -> Path:
     return p
 
 
+def _script_with_body(d: Path, body: str) -> Path:
+    p = d / "stub-cli.sh"
+    p.write_text("#!/bin/sh\n" + body, encoding="utf-8")
+    p.chmod(p.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
+    return p
+
+
 def _conf(root: Path, script: Path) -> Path:
     conf = root / "conf"
     providers = conf / "providers"
@@ -123,6 +130,44 @@ class CliProviderE2ETest(unittest.TestCase):
                 )
             self.assertEqual(code, 0)
             self.assertIn("AgentRun 监控结束：done", buf.getvalue())
+
+    def test_task_watch_renders_stream_sources_as_cli_log(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            prompt = root / "p.md"
+            prompt.write_text("x", encoding="utf-8")
+            script = _script_with_body(
+                root,
+                "cat >/dev/null\n"
+                "printf 'stdout-line\\n'\n"
+                "printf 'stderr-line\\n' >&2\n"
+                "printf '{\"schema_version\":1,\"run_id\":\"%s\",\"outcome\":\"succeeded\",\"summary\":\"stub cli\",\"artifacts\":[],\"errors\":[],\"validation\":{\"commands\":[],\"passed\":true}}' \"$AGENTRUN_RUN_ID\" > \"$AGENTRUN_RESULT_FILE\"\n",
+            )
+            conf = _conf(root, script)
+            runs_dir = root / "runs"
+            rt = AgentRuntime(conf_dir=conf, runs_dir=runs_dir)
+            out = rt.run_task(prompt_file=prompt, run_id="task-watch-stream")
+            self.assertEqual(out["state"], "done")
+
+            buf = StringIO()
+            with redirect_stdout(buf):
+                code = cli_main(
+                    [
+                        "--conf-dir",
+                        str(conf),
+                        "--runs-dir",
+                        str(runs_dir),
+                        "task",
+                        "watch",
+                        "task-watch-stream",
+                    ]
+                )
+            self.assertEqual(code, 0)
+            rendered = buf.getvalue()
+            self.assertIn("[cli-log] stdout-line", rendered)
+            self.assertIn("[cli-log] stderr-line", rendered)
+            self.assertNotIn("[stdout]", rendered)
+            self.assertNotIn("[stderr]", rendered)
 
 
 if __name__ == "__main__":
