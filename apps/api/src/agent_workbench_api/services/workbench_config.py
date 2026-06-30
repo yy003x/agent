@@ -153,7 +153,7 @@ def _valid_profile_for_runtime(choices: list[dict], runtime: str, value: str, de
 
 def _profile_for_selection(config: dict, runtime: str, value: str | None, default_key: str) -> str:
     default_value = str(config.get(default_key) or "")
-    return _valid_profile_for_runtime(_runtime_choices(), runtime, str(value or default_value), default_value)
+    return _valid_profile_for_runtime(_runtime_choices_all(), runtime, str(value or default_value), default_value)
 
 
 def _validate_selected_profiles(config: dict) -> dict:

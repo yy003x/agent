@@ -11,7 +11,7 @@ import {
 } from "lucide-react";
 import { FormEvent, KeyboardEvent, useEffect, useMemo, useState } from "react";
 import { api } from "./api/client";
-import { PreviewPanel, ProgressPanel, SettingsPanel } from "./components/Panels";
+import { PreviewPanel, ProgressPanel, RuntimePicker, SettingsPanel, type RuntimePickerValue } from "./components/Panels";
 import type {
   AppStatePayload,
   FilePreviewPayload,
@@ -21,6 +21,7 @@ import type {
   OutputRef,
   RuntimeConfig,
   RuntimeConfigPayload,
+  RuntimeChoice,
   RuntimeRun,
   SessionDetail,
   SessionSummary
@@ -54,12 +55,16 @@ export function App() {
   const [kbModality, setKbModality] = useState("all");
   const [preview, setPreview] = useState<FilePreviewPayload | null>(null);
   const [runtimePrompt, setRuntimePrompt] = useState("请完成一个健康检查任务，并把 result 写入指定文件。");
+  const [newSessionRuntime, setNewSessionRuntime] = useState<RuntimePickerValue>({ provider: "tmux", profile: "" });
+  const [sessionRuntime, setSessionRuntime] = useState<RuntimePickerValue>({ provider: "tmux", profile: "" });
+  const [newRunRuntime, setNewRunRuntime] = useState<RuntimePickerValue>({ provider: "tmux", profile: "" });
   const [runtimeLogs, setRuntimeLogs] = useState("");
   const [advanced, setAdvanced] = useState(false);
   const [error, setError] = useState("");
 
   const operator = sessionDetail?.operator;
   const config = runtimeConfig.config ?? {};
+  const runtimeChoices = runtimeConfig.runtime_choices_all?.length ? runtimeConfig.runtime_choices_all : (runtimeConfig.runtime_choices ?? []);
 
   async function guarded<T>(fn: () => Promise<T>): Promise<T | undefined> {
     try {
@@ -99,7 +104,11 @@ export function App() {
   async function createSession(title = "") {
     const data = await api<SessionSummary>("/api/chat/sessions", {
       method: "POST",
-      body: JSON.stringify({ title, runtime: config.chat_provider || "tmux" })
+      body: JSON.stringify({
+        title,
+        runtime: newSessionRuntime.provider || config.chat_provider || "tmux",
+        profile: newSessionRuntime.profile || config.chat_profile || ""
+      })
     });
     await refreshState();
     await loadSession(data.session_id);
@@ -141,7 +150,11 @@ export function App() {
     if (!sessionId) {
       const created = await api<SessionSummary>("/api/chat/sessions", {
         method: "POST",
-        body: JSON.stringify({ title: titleFromMessage(content), runtime: config.chat_provider || "tmux" })
+        body: JSON.stringify({
+          title: titleFromMessage(content),
+          runtime: newSessionRuntime.provider || config.chat_provider || "tmux",
+          profile: newSessionRuntime.profile || config.chat_profile || ""
+        })
       });
       sessionId = created.session_id;
       setCurrentSession(sessionId);
@@ -229,9 +242,27 @@ export function App() {
     event.preventDefault();
     await api("/api/runtime/runs", {
       method: "POST",
-      body: JSON.stringify({ runtime: config.runtime_provider || "tmux", prompt: runtimePrompt })
+      body: JSON.stringify({
+        runtime: newRunRuntime.provider || config.runtime_provider || "tmux",
+        profile: newRunRuntime.profile || config.runtime_profile || "",
+        prompt: runtimePrompt
+      })
     });
     await refreshRuns();
+  }
+
+  async function switchSessionRuntime(event: FormEvent) {
+    event.preventDefault();
+    if (!currentSession) return;
+    await api(`/api/chat/sessions/${currentSession}/runtime`, {
+      method: "POST",
+      body: JSON.stringify({
+        runtime: sessionRuntime.provider || sessionDetail?.runtime || config.chat_provider || "tmux",
+        profile: sessionRuntime.profile || sessionDetail?.runtime_profile || config.chat_profile || ""
+      })
+    });
+    await refreshState();
+    await loadSession(currentSession);
   }
 
   async function stopSessionRuntime() {
@@ -252,6 +283,21 @@ export function App() {
       if (state?.sessions?.[0]) await loadSession(state.sessions[0].session_id);
     });
   }, []);
+
+  useEffect(() => {
+    setNewSessionRuntime({ provider: config.chat_provider || "tmux", profile: config.chat_profile || "" });
+  }, [config.chat_provider, config.chat_profile]);
+
+  useEffect(() => {
+    setNewRunRuntime({ provider: config.runtime_provider || "tmux", profile: config.runtime_profile || "" });
+  }, [config.runtime_provider, config.runtime_profile]);
+
+  useEffect(() => {
+    setSessionRuntime({
+      provider: sessionDetail?.runtime || config.chat_provider || "tmux",
+      profile: sessionDetail?.runtime_profile || config.chat_profile || ""
+    });
+  }, [sessionDetail?.session_id, sessionDetail?.runtime, sessionDetail?.runtime_profile, config.chat_provider, config.chat_profile]);
 
   useEffect(() => {
     const timer = window.setInterval(() => {
@@ -282,6 +328,13 @@ export function App() {
           </button>
         </div>
         <div className="sidebar-actions">
+          <RuntimePicker
+            label="新会话助手"
+            provider={newSessionRuntime.provider || config.chat_provider}
+            profile={newSessionRuntime.profile || config.chat_profile}
+            choices={runtimeChoices}
+            onChange={setNewSessionRuntime}
+          />
           <button className="primary-button" onClick={() => guarded(() => createSession())}>
             <Plus size={16} /> 新会话
           </button>
@@ -315,7 +368,7 @@ export function App() {
               )}
               <button onClick={() => guarded(() => loadSession(session.session_id))}>
                 <strong>{session.title || session.session_id}</strong>
-                <span>{providerLabel(session.runtime)} · {session.updated_at || ""}</span>
+                <span>{runtimeSelectionLabel(runtimeChoices, session.runtime, session.runtime_profile)} · {session.updated_at || ""}</span>
               </button>
               {sessionEditMode && (
                 <button className="danger-icon" onClick={() => guarded(() => deleteSession(session.session_id))} title="物理删除">
@@ -336,10 +389,22 @@ export function App() {
         <header className="chat-header">
           <div>
             <h2>{sessionDetail?.title || "未选择会话"}</h2>
-            <span>{currentSession ? `${providerLabel(sessionDetail?.runtime)} · ${currentSession}` : "创建会话后开始"}</span>
+            <span>{currentSession ? `${runtimeSelectionLabel(runtimeChoices, sessionDetail?.runtime, sessionDetail?.runtime_profile)} · ${currentSession}` : "创建会话后开始"}</span>
           </div>
           {operator?.progress?.status && <span className={`pill ${statusClass(operator.progress.status)}`}>{operator.progress.status_label || operator.progress.status}</span>}
         </header>
+        {currentSession && (
+          <form className="session-runtime-form" onSubmit={(event) => guarded(() => switchSessionRuntime(event))}>
+            <RuntimePicker
+              label="当前会话助手"
+              provider={sessionRuntime.provider}
+              profile={sessionRuntime.profile}
+              choices={runtimeChoices}
+              onChange={setSessionRuntime}
+            />
+            <button type="submit">切换助手</button>
+          </form>
+        )}
         <div className="message-list">
           {(sessionDetail?.messages ?? []).map((message) => (
             <article className={`message ${message.role === "user" ? "user" : "assistant"} ${message.pending ? "pending" : ""}`} key={message.id}>
@@ -482,6 +547,13 @@ export function App() {
                 <details>
                   <summary>Runtime Runs</summary>
                   <form className="runtime-form" onSubmit={(event) => guarded(() => startRuntimeRun(event))}>
+                    <RuntimePicker
+                      label="长任务助手"
+                      provider={newRunRuntime.provider || config.runtime_provider}
+                      profile={newRunRuntime.profile || config.runtime_profile}
+                      choices={runtimeChoices}
+                      onChange={setNewRunRuntime}
+                    />
                     <textarea value={runtimePrompt} onChange={(event) => setRuntimePrompt(event.target.value)} />
                     <button type="submit"><Play size={14} /> 启动测试任务</button>
                   </form>
@@ -489,7 +561,7 @@ export function App() {
                     {runs.map((run) => (
                       <article className="card" key={run.run_id}>
                         <h3>{run.run_id}</h3>
-                        <span>{run.runtime} · {run.state} · {run.output_bytes || 0} bytes</span>
+                        <span>{runtimeSelectionLabel(runtimeChoices, run.runtime, run.runtime_profile || run.provider_profile)} · {run.state} · {run.output_bytes || 0} bytes</span>
                         <div className="action-row">
                           <button onClick={() => guarded(() => loadRunLogs(run.run_id))}>日志</button>
                           <button onClick={() => guarded(async () => {
@@ -513,4 +585,12 @@ export function App() {
       </aside>
     </main>
   );
+}
+
+function runtimeSelectionLabel(choices: RuntimeChoice[], runtime?: string, profile?: string) {
+  const choice = choices.find((item) => item.profile === profile || item.id === profile);
+  if (choice) {
+    return `${providerLabel(choice.provider_type || choice.transport)} · ${choice.label || choice.profile_name || choice.profile}`;
+  }
+  return `${providerLabel(runtime)}${profile ? ` · ${profile}` : ""}`;
 }

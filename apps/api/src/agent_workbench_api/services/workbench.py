@@ -212,6 +212,41 @@ def session_runtime_logs(session_id: str, max_bytes: int = 40_000) -> dict:
     return MAIN_RUNTIME.worker_logs(runtime_meta, max_bytes=max_bytes)
 
 
+def update_session_runtime(session_id: str, runtime: str | None = None, profile: str | None = None) -> dict:
+    path = _session_dir(session_id)
+    if not path.exists():
+        raise FileNotFoundError("session not found")
+    if _has_running_turn(session_id):
+        raise RuntimeError("当前会话仍有执行中的消息，请完成或停止后再切换助手。")
+    state = _read_json(path / "state.json", {})
+    config = workbench_config()
+    selected_runtime = _valid_user_runtime(runtime or state.get("runtime") or config["chat_provider"], config["chat_provider"])
+    selected_profile = _profile_for_selection(config, selected_runtime, profile, "chat_profile")
+    warnings: list[str] = []
+    runtime_meta = state.get("runtime_meta") or {}
+    if runtime_meta and not runtime_meta.get("stopped_at"):
+        try:
+            MAIN_RUNTIME.stop_worker(runtime_meta)
+        except Exception as exc:  # noqa: BLE001
+            warnings.append(f"停止原助手失败：{exc}")
+    state["runtime"] = selected_runtime
+    state["runtime_profile"] = selected_profile
+    state["runtime_command"] = _command_for_runtime(config, selected_runtime, selected_profile)
+    state["runtime_options"] = _runtime_options_from_config(config, chat_profile=selected_profile)
+    state.pop("runtime_meta", None)
+    state["updated_at"] = _now()
+    _write_json(path / "state.json", state)
+    _append_jsonl(path / "events.jsonl", {
+        "ts": _now(),
+        "type": "chat.runtime_changed",
+        "session_id": session_id,
+        "runtime": selected_runtime,
+        "profile": selected_profile,
+        "warnings": warnings,
+    })
+    return {**state, "ok": True, "warnings": warnings}
+
+
 def stop_session_runtime(session_id: str) -> dict:
     path = _session_dir(session_id)
     state = _read_json(path / "state.json", {})

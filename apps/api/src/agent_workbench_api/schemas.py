@@ -19,6 +19,11 @@ class AddMessageRequest(BaseModel):
     wait_seconds: float = 0
 
 
+class UpdateSessionRuntimeRequest(BaseModel):
+    runtime: str | None = None
+    profile: str | None = None
+
+
 class RuntimeConfigRequest(BaseModel):
     chat_provider: str | None = None
     runtime_provider: str | None = None

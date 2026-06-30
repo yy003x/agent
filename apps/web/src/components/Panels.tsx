@@ -3,6 +3,11 @@ import { useEffect, useMemo, useState, type FormEvent } from "react";
 import type { FilePreviewPayload, HealthPayload, OperatorView, RuntimeChoice, RuntimeConfig } from "../types";
 import { providerLabel, statusClass } from "../utils";
 
+export interface RuntimePickerValue {
+  provider: string;
+  profile: string;
+}
+
 export function ProgressPanel(props: {
   operator?: OperatorView;
   onStop: () => void;
@@ -59,9 +64,10 @@ export function SettingsPanel({ config, health, choices, allChoices, onSubmit, o
   onValidate: () => void;
 }) {
   const checks = Object.fromEntries((health.checks ?? []).map((item) => [item.id, item]));
-  const runtimeChoices = choices ?? [];
+  const validRuntimeChoices = choices ?? [];
   const allRuntimeChoices = allChoices ?? [];
-  const validatedCount = runtimeChoices.length;
+  const runtimeChoices = allRuntimeChoices.length ? allRuntimeChoices : validRuntimeChoices;
+  const validatedCount = validRuntimeChoices.length;
   const totalCount = allRuntimeChoices.length || validatedCount;
   return (
     <form className="settings-form" onSubmit={onSubmit}>
@@ -107,22 +113,41 @@ function RuntimeSelector({ label, prefix, config, choices }: {
 }) {
   const currentProfile = prefix === "chat" ? config.chat_profile : config.runtime_profile;
   const currentProvider = prefix === "chat" ? config.chat_provider : config.runtime_provider;
+  return (
+    <RuntimePicker
+      label={label}
+      prefix={prefix}
+      provider={currentProvider}
+      profile={currentProfile}
+      choices={choices}
+    />
+  );
+}
+
+export function RuntimePicker({ label, prefix, provider, profile: currentProfile, choices, onChange }: {
+  label: string;
+  prefix?: "chat" | "runtime";
+  provider?: string;
+  profile?: string;
+  choices: RuntimeChoice[];
+  onChange?: (value: RuntimePickerValue) => void;
+}) {
   const initialChoice = choices.find((choice) => choice.profile === currentProfile || choice.id === currentProfile);
-  const initialType = selectedType(choices, initialChoice, currentProvider);
+  const initialType = selectedType(choices, initialChoice, provider);
   const initialName = initialChoice?.provider_name || firstName(choices, initialType);
   const initialProfile = initialChoice?.profile || firstProfile(choices, initialType, initialName);
   const [providerType, setProviderType] = useState(initialType);
   const [providerName, setProviderName] = useState(initialName);
-  const [profile, setProfile] = useState(initialProfile);
-  const resetKey = `${choices.map((choice) => choice.id).join("|")}::${currentProvider || ""}::${currentProfile || ""}`;
+  const [profile, setProfileState] = useState(initialProfile);
+  const resetKey = `${choices.map((choice) => choice.id).join("|")}::${provider || ""}::${currentProfile || ""}`;
 
   useEffect(() => {
     const nextChoice = choices.find((choice) => choice.profile === currentProfile || choice.id === currentProfile);
-    const nextType = selectedType(choices, nextChoice, currentProvider);
+    const nextType = selectedType(choices, nextChoice, provider);
     const nextName = nextChoice?.provider_name || firstName(choices, nextType);
     setProviderType(nextType);
     setProviderName(nextName);
-    setProfile(nextChoice?.profile || firstProfile(choices, nextType, nextName));
+    setProfileState(nextChoice?.profile || firstProfile(choices, nextType, nextName));
   }, [resetKey]);
 
   const providerTypes = useMemo(() => unique(choices.map(choiceType).filter(Boolean)), [choices]);
@@ -137,22 +162,31 @@ function RuntimeSelector({ label, prefix, config, choices }: {
 
   function pickType(value: string) {
     const name = firstName(choices, value);
+    const nextProfile = firstProfile(choices, value, name);
     setProviderType(value);
     setProviderName(name);
-    setProfile(firstProfile(choices, value, name));
+    setProfileState(nextProfile);
+    onChange?.({ provider: value, profile: nextProfile });
   }
 
   function pickName(value: string) {
+    const nextProfile = firstProfile(choices, providerType, value);
     setProviderName(value);
-    setProfile(firstProfile(choices, providerType, value));
+    setProfileState(nextProfile);
+    onChange?.({ provider: providerType, profile: nextProfile });
+  }
+
+  function pickProfile(value: string) {
+    setProfileState(value);
+    onChange?.({ provider: providerType, profile: value });
   }
 
   if (!choices.length) {
     return (
       <fieldset className="runtime-selector">
         <legend>{label}</legend>
-        <input type="hidden" name={`${prefix}_provider`} value={currentProvider || "tmux"} />
-        <input type="hidden" name={`${prefix}_profile`} value={currentProfile || ""} />
+        {prefix && <input type="hidden" name={`${prefix}_provider`} value={provider || "tmux"} />}
+        {prefix && <input type="hidden" name={`${prefix}_profile`} value={currentProfile || ""} />}
         <select disabled><option>暂无已验证配置</option></select>
       </fieldset>
     );
@@ -161,15 +195,15 @@ function RuntimeSelector({ label, prefix, config, choices }: {
   return (
     <fieldset className="runtime-selector">
       <legend>{label}</legend>
-      <label>类型<select name={`${prefix}_provider`} value={providerType} onChange={(event) => pickType(event.target.value)}>
-        {providerTypes.map((item) => <option value={item} key={`${prefix}-type-${item}`}>{providerLabel(item)}</option>)}
+      <label>类型<select name={prefix ? `${prefix}_provider` : undefined} value={providerType} onChange={(event) => pickType(event.target.value)}>
+        {providerTypes.map((item) => <option value={item} key={`${prefix || label}-type-${item}`}>{providerLabel(item)}</option>)}
       </select></label>
-      <label>Provider<select name={`${prefix}_provider_name`} value={providerName} onChange={(event) => pickName(event.target.value)}>
-        {providerNames.map((item) => <option value={item} key={`${prefix}-name-${item}`}>{item}</option>)}
+      <label>Provider<select name={prefix ? `${prefix}_provider_name` : undefined} value={providerName} onChange={(event) => pickName(event.target.value)}>
+        {providerNames.map((item) => <option value={item} key={`${prefix || label}-name-${item}`}>{item}</option>)}
       </select></label>
-      <label>Profile<select name={`${prefix}_profile`} value={profile} onChange={(event) => setProfile(event.target.value)}>
+      <label>Profile<select name={prefix ? `${prefix}_profile` : undefined} value={profile} onChange={(event) => pickProfile(event.target.value)}>
         {profiles.map((choice) => (
-          <option value={choice.profile} key={`${prefix}-profile-${choice.profile}`}>
+          <option value={choice.profile} key={`${prefix || label}-profile-${choice.profile}`}>
             {choice.label || choice.profile_name || choice.profile}
           </option>
         ))}

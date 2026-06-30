@@ -23,6 +23,7 @@ from agent_workbench_api.schemas import (
     SendRuntimeRequest,
     StartContentDeliveryWorkflowRequest,
     StartRuntimeRequest,
+    UpdateSessionRuntimeRequest,
 )
 from agent_workbench_api.services import workbench
 from agent_workflows import content_delivery
@@ -169,6 +170,14 @@ def add_chat_message(session_id: str, payload: AddMessageRequest) -> dict:
 @app.post("/api/chat/sessions/{session_id}/message")
 def add_chat_message_compat(session_id: str, payload: AddMessageRequest) -> dict:
     return add_chat_message(session_id, payload)
+
+
+@app.post("/api/chat/sessions/{session_id}/runtime")
+def update_chat_session_runtime(session_id: str, payload: UpdateSessionRuntimeRequest) -> dict:
+    try:
+        return workbench.update_session_runtime(session_id, payload.runtime, payload.profile)
+    except Exception as exc:  # noqa: BLE001
+        raise _api_error(exc) from exc
 
 
 @app.get("/api/chat/sessions/{session_id}/operator")

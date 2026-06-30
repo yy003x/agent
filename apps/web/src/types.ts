@@ -4,6 +4,7 @@ export interface SessionSummary {
   session_id: string;
   title?: string;
   runtime?: RuntimeProvider | string;
+  runtime_profile?: string;
   updated_at?: string;
 }
 
@@ -97,6 +98,8 @@ export interface RuntimeRun {
   run_id: string;
   state?: string;
   runtime?: string;
+  runtime_profile?: string;
+  provider_profile?: string;
   command?: string;
   output_bytes?: number;
 }

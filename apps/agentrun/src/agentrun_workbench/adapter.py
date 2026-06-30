@@ -464,7 +464,9 @@ class AgentRunAdapter:
     def _command(self) -> tuple[list[str], dict[str, str] | None, str]:
         if self.cli_path and self.cli_path.exists() and os.access(self.cli_path, os.X_OK):
             return [str(self.cli_path)], None, ""
-        src_dir = self.runtime_root
+        src_dir = self.runtime_root / "src"
+        if not (src_dir / "agentrun").is_dir():
+            src_dir = self.runtime_root
         package_dir = src_dir / "agentrun"
         if not package_dir.is_dir():
             return [], None, f"AgentRun package unavailable: {package_dir}"
