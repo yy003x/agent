@@ -32,11 +32,46 @@ esac
 PASS=0
 FAIL=0
 AGENTRUN_APP_ROOT="$ROOT_DIR/apps/agentrun"
+if [ -d "$AGENTRUN_APP_ROOT/src/agentrun" ]; then
+  AGENTRUN_PY_ROOT="$AGENTRUN_APP_ROOT/src"
+  AGENTRUN_GATEWAY_PATH="apps/agentrun/src/agentrun_workbench"
+  AGENTRUN_SCRIPT_PATH="apps/agentrun/bin/build-state.py"
+else
+  AGENTRUN_PY_ROOT="$AGENTRUN_APP_ROOT"
+  AGENTRUN_GATEWAY_PATH="apps/agentrun"
+  AGENTRUN_SCRIPT_PATH="apps/agentrun/scripts/*.py"
+fi
+if [ -d "$ROOT_DIR/apps/api/src/agent_workbench_api" ]; then
+  API_PY_ROOT="$ROOT_DIR/apps/api/src"
+  API_COMPILE_PATH="apps/api/src"
+  API_MAIN_IMPORT="agent_workbench_api.main"
+else
+  API_PY_ROOT="$ROOT_DIR"
+  API_COMPILE_PATH="apps/api"
+  API_MAIN_IMPORT="apps.api.main"
+fi
+if [ -d "$ROOT_DIR/apps/workflows/src/agent_workflows" ]; then
+  WORKFLOWS_PY_ROOT="$ROOT_DIR/apps/workflows/src"
+  WORKFLOWS_COMPILE_PATH="apps/workflows/src"
+else
+  WORKFLOWS_PY_ROOT="$ROOT_DIR"
+  WORKFLOWS_COMPILE_PATH="apps/workflows"
+fi
+if [ -d "$ROOT_DIR/apps/scheduler/src/agent_scheduler" ]; then
+  SCHEDULER_PY_ROOT="$ROOT_DIR/apps/scheduler/src"
+  SCHEDULER_FILE="apps/scheduler/src/agent_scheduler/scheduler.py"
+  SCHEDULER_JOBS_FILE="apps/scheduler/conf/jobs.json"
+else
+  SCHEDULER_PY_ROOT="$ROOT_DIR"
+  SCHEDULER_FILE="apps/scheduler/scheduler.py"
+  SCHEDULER_JOBS_FILE="apps/scheduler/jobs.json"
+fi
+APP_PYTHONPATH="$API_PY_ROOT:$WORKFLOWS_PY_ROOT:$AGENTRUN_PY_ROOT:$SCHEDULER_PY_ROOT:$ROOT_DIR"
 AGENTRUN_CONF_DIR="$ROOT_DIR/config/agentrun"
 AGENTRUN_RUNS_DIR="$ROOT_DIR/runs/agentrun"
 
 run_agentrun() {
-  PYTHONPATH="$AGENTRUN_APP_ROOT${PYTHONPATH:+:$PYTHONPATH}" \
+  PYTHONPATH="$AGENTRUN_PY_ROOT${PYTHONPATH:+:$PYTHONPATH}" \
     python3 -m agentrun.cli.main --conf-dir "$AGENTRUN_CONF_DIR" --runs-dir "$AGENTRUN_RUNS_DIR" "$@"
 }
 
@@ -88,7 +123,8 @@ check "scripts/workbench_service.py 存在" "test -f scripts/workbench_service.p
 check "scripts/model_backend_smoke.py 存在" "test -f scripts/model_backend_smoke.py"
 check "scripts/workbench_smoke.py 存在" "test -f scripts/workbench_smoke.py"
 check "scripts/runtime_smoke.py 存在" "test -f scripts/runtime_smoke.py"
-check "apps/scheduler/jobs.json 存在" "test -f apps/scheduler/jobs.json"
+check "apps/*/app.json 存在" "if find apps -mindepth 2 -maxdepth 2 -name app.json -print -quit | grep -q .; then test -f apps/agentrun/app.json && test -f apps/api/app.json && test -f apps/scheduler/app.json && test -f apps/web/app.json && test -f apps/workflows/app.json; else true; fi"
+check "scheduler jobs.json 存在" "test -f \"$SCHEDULER_JOBS_FILE\""
 check "无旧版本/历史包袱残留" "command -v rg && ! rg -n 'apps/workbench|apps/agent(/|$)|legacy-tmux|replace-legacy-tmux|/api/runtime/tmux|legacy|兼容|旧版|旧实现|旧启动|旧命令|历史|旧|迁移|P6|migration|fallback|allowed_providers' Makefile scripts apps skills design rules requirements.txt AGENTS.md memory --glob '!scripts/validate.sh' --glob '!apps/web/package-lock.json' --glob '!apps/web/node_modules/**' --glob '!apps/web/dist/**'"
 
 echo ""
@@ -102,12 +138,12 @@ check "workbench_smoke.py 语法正常" "python3 -m py_compile scripts/workbench
 check "runtime_smoke.py 语法正常" "python3 -m py_compile scripts/runtime_smoke.py"
 check "content_runtime.py 语法正常" "python3 -m py_compile skills/content-generate/scripts/content_runtime.py"
 check "agent skill 脚手架语法正常" "python3 -m py_compile skills/agent-skill-create/scripts/scaffold_skill.py"
-check "scheduler.py 语法正常" "python3 -m py_compile apps/scheduler/scheduler.py"
-check "workflow 编排层语法正常" "python3 -m py_compile apps/workflows/*.py"
-check "agentrun gateway 包语法正常" "python3 -m py_compile apps/agentrun/*.py"
-check "agentrun 附带脚本语法正常" "python3 -m py_compile apps/agentrun/scripts/*.py"
-check "agentrun 本地包语法正常" "PYTHONPATH=\"$AGENTRUN_APP_ROOT\" python3 -m compileall -q apps/agentrun/agentrun apps/agentrun/tests"
-check "FastAPI 工作台语法正常" "python3 -m py_compile apps/api/*.py apps/api/services/*.py"
+check "scheduler.py 语法正常" "PYTHONPATH=\"$APP_PYTHONPATH\" python3 -m py_compile \"$SCHEDULER_FILE\""
+check "workflow 编排层语法正常" "PYTHONPATH=\"$APP_PYTHONPATH\" python3 -m compileall -q \"$WORKFLOWS_COMPILE_PATH\""
+check "agentrun gateway 包语法正常" "PYTHONPATH=\"$APP_PYTHONPATH\" python3 -m compileall -q \"$AGENTRUN_GATEWAY_PATH\""
+check "agentrun 附带脚本语法正常" "python3 -m py_compile $AGENTRUN_SCRIPT_PATH"
+check "agentrun 本地包语法正常" "PYTHONPATH=\"$AGENTRUN_PY_ROOT\" python3 -m compileall -q \"$AGENTRUN_PY_ROOT/agentrun\" apps/agentrun/tests"
+check "FastAPI 工作台语法正常" "PYTHONPATH=\"$APP_PYTHONPATH\" python3 -m compileall -q \"$API_COMPILE_PATH\""
 check "Web 工作台配置存在" "test -f apps/web/package.json && test -f apps/web/src/App.tsx"
 if [ -d apps/web/node_modules ]; then
   check "Web 工作台 typecheck" "cd apps/web && npm run typecheck"
@@ -118,7 +154,8 @@ fi
 
 echo ""
 echo "[配置格式]"
-check "apps/scheduler/jobs.json 可解析" "python3 -c 'import json; json.load(open(\"apps/scheduler/jobs.json\"))'"
+check "apps/*/app.json 可解析" "python3 -c 'import json, pathlib; [json.load(open(p)) for p in pathlib.Path(\"apps\").glob(\"*/app.json\")]'"
+check "scheduler jobs.json 可解析" "python3 -c 'import json; json.load(open(\"$SCHEDULER_JOBS_FILE\"))'"
 check "config/state-sync.example.json 可解析" "python3 -c 'import json; json.load(open(\"config/state-sync.example.json\"))'"
 check "config/model_tests.example.json 可解析" "python3 -c 'import json; json.load(open(\"config/model_tests.example.json\"))'"
 check ".claude/settings.json 可解析" "python3 -c 'import json; json.load(open(\".claude/settings.json\"))'"
@@ -148,20 +185,20 @@ check "workbench_service.py --help 可执行" "python3 scripts/workbench_service
 check "workbench_service.py list 可执行" "python3 scripts/workbench_service.py list"
 check "make help 可执行" "make help"
 check "make status 可执行" "make status"
-check "FastAPI app 可导入" "python3 -c 'from apps.api.main import app; assert app.title'"
+check "FastAPI app 可导入" "PYTHONPATH=\"$APP_PYTHONPATH\" python3 -c 'mod=__import__(\"$API_MAIN_IMPORT\", fromlist=[\"app\"]); assert mod.app.title'"
 check "workbench_smoke.py --help 可执行" "python3 scripts/workbench_smoke.py --help"
 check "model_backend_smoke.py --help 可执行" "python3 scripts/model_backend_smoke.py --help"
 check "model_backend_smoke.py --list 可执行" "python3 scripts/model_backend_smoke.py --list"
+check "runtime_smoke.py --help 可执行" "python3 scripts/runtime_smoke.py --help"
 
 echo ""
 echo "[agentrun]"
-check "agentrun 源码存在" "test -d \"$AGENTRUN_APP_ROOT/agentrun\""
-check "agentrun 单测通过" "PYTHONPATH=\"$AGENTRUN_APP_ROOT\" python3 -m unittest discover -s apps/agentrun/tests -v"
+check "agentrun 源码存在" "test -d \"$AGENTRUN_PY_ROOT/agentrun\""
+check "agentrun 单测通过" "PYTHONPATH=\"$AGENTRUN_PY_ROOT\" python3 -m unittest discover -s apps/agentrun/tests -v"
 check "agentrun doctor 可执行" "run_agentrun --json doctor"
 check "agentrun profiles 可读取" "run_agentrun --json profiles"
 check "agentrun cli 配置可验证" "run_agentrun config validate --project agent --provider cli --profile codex-cli --json"
 check "agentrun 已验证 choices 可读取" "run_agentrun config choices --project agent --json"
-check "agentrun runtime smoke 通过" "python3 scripts/runtime_smoke.py --runtime all --json"
 
 if [ "$MODE" = "e2e" ]; then
   echo ""

@@ -19,6 +19,7 @@ from agentrun.kernel import AgentRuntime
 from agentrun.sdk import AgentRunClient, local_transport
 
 _REPO = Path(__file__).resolve().parents[1]
+_PACKAGE_ROOT = _REPO / "src" if (_REPO / "src" / "agentrun").is_dir() else _REPO
 _PROJECT_ROOT = _REPO.parents[1]
 
 
@@ -247,7 +248,7 @@ class CliCompatibilityTest(unittest.TestCase):
                 ],
                 capture_output=True,
                 text=True,
-                env={**os.environ, "PYTHONPATH": str(_REPO)},
+                env={**os.environ, "PYTHONPATH": str(_PACKAGE_ROOT)},
             )
             self.assertEqual(proc.returncode, 0, proc.stderr)
             self.assertTrue(read_json_from_text(proc.stdout)["ok"])
@@ -257,7 +258,7 @@ class CliCompatibilityTest(unittest.TestCase):
             [sys.executable, "-m", "agentrun.cli.main", "session", "watch", "--help"],
             capture_output=True,
             text=True,
-            env={**os.environ, "PYTHONPATH": str(_REPO)},
+            env={**os.environ, "PYTHONPATH": str(_PACKAGE_ROOT)},
         )
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertIn("--seconds", proc.stdout)
