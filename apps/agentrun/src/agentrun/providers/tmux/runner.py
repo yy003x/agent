@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import atexit
+import os
 import re
 import shlex
 import shutil
@@ -778,8 +779,6 @@ class TmuxProvider:
         return PreparedPrompt(prompt_file=prompt_path, input_file=input_path)
 
     def _write_command_sh(self, paths: RunPaths, request: RunRequest, done_file: Path, prompt_file: Path | None) -> Path:
-        import os
-
         if not self.profile.binary:
             raise TmuxError("tmux profile binary 不能为空")
         env = {
@@ -793,13 +792,14 @@ class TmuxProvider:
             env["AGENTRUN_PROMPT_FILE"] = str(prompt_file)
         static_env = self.profile.raw.get("env")
         if isinstance(static_env, dict):
-            env.update({str(k): str(v) for k, v in static_env.items()})
+            env.update({str(k): _expand_env_value(str(v)) for k, v in static_env.items()})
         for name in self.env_passthrough:
             if name in os.environ:
                 env[name] = os.environ[name]
-        argv = ["env", *[f"{k}={v}" for k, v in sorted(env.items())], self.profile.binary, *self.profile.default_args]
+        argv = [self.profile.binary, *self.profile.default_args]
         script = paths.run_dir / "command.sh"
-        script.write_text("#!/bin/sh\nexec " + shlex.join(argv) + "\n", encoding="utf-8")
+        exports = "\n".join(f"export {key}={shlex.quote(value)}" for key, value in sorted(env.items()))
+        script.write_text("#!/bin/sh\n" + exports + "\nexec " + shlex.join(argv) + "\n", encoding="utf-8")
         script.chmod(0o700)
         return script
 
@@ -1020,3 +1020,10 @@ def _pane_identity_from_tmux(pane_id: str) -> PaneIdentity | None:
         if len(parts) == 4 and parts[3] == pane_id:
             return parts[0], parts[1], parts[2], parts[3]
     return None
+
+
+_ENV_PATTERN = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
+
+
+def _expand_env_value(value: str) -> str:
+    return _ENV_PATTERN.sub(lambda match: os.environ.get(match.group(1), ""), value)

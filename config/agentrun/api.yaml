@@ -1,31 +1,27 @@
-openai:
+openrouter-openai:
   protocol: openai
-  base_url: https://api.openai.com/v1
-  api_key_env: OPENAI_API_KEY
+  base_url: https://openrouter.ai/api/v1
+  api_key_env: OPENROUTER_API_KEY
   headers:
-    OpenAI-Organization: ${OPENAI_ORG_ID}
-    OpenAI-Project: ${OPENAI_PROJECT_ID}
+    HTTP-Referer: ${OPENROUTER_HTTP_REFERER}
+    X-OpenRouter-Title: ${OPENROUTER_TITLE}
   models:
-    gpt-4o-mini:
-      model: gpt-4o-mini
-      label: GPT-4o mini
+    glm-5.1:
+      profile: api-openrouter-openai-glm-5.1
+      model: z-ai/glm-5.1
+      label: OpenRouter GLM-5.1 (OpenAI)
 
-anthropic:
+openrouter-anthropic:
   protocol: anthropic
-  base_url: https://api.anthropic.com/v1
-  api_key_env: ANTHROPIC_API_KEY
+  base_url: https://openrouter.ai/api/v1
+  api_key_env: OPENROUTER_API_KEY
+  api_key_header: Authorization
+  api_key_prefix: "Bearer "
   headers:
-    anthropic-version: "2023-06-01"
+    HTTP-Referer: ${OPENROUTER_HTTP_REFERER}
+    X-OpenRouter-Title: ${OPENROUTER_TITLE}
   models:
-    claude-3-5-haiku-latest:
-      model: claude-3-5-haiku-latest
-      label: Claude 3.5 Haiku
-
-deepseek:
-  protocol: openai
-  base_url: https://api.deepseek.com/v1
-  api_key_env: DEEPSEEK_API_KEY
-  models:
-    deepseek-chat:
-      model: deepseek-chat
-      label: DeepSeek Chat
+    glm-5.1:
+      profile: api-openrouter-anthropic-glm-5.1
+      model: z-ai/glm-5.1
+      label: OpenRouter GLM-5.1 (Anthropic)

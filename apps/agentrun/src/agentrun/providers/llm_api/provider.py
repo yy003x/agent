@@ -29,6 +29,8 @@ class LlmApiProvider:
         self.base_url = str(raw.get("base_url") or raw.get("host") or "").rstrip("/")
         self.model = str(raw.get("model", ""))
         self.api_key_env = str(raw.get("api_key_env", ""))
+        self.api_key_header = str(raw.get("api_key_header", ""))
+        self.api_key_prefix = str(raw.get("api_key_prefix", ""))
         self.headers = dict(raw.get("headers") or {})
         self.mock = bool(raw.get("mock", False))
 
@@ -66,7 +68,8 @@ class LlmApiProvider:
 
         try:
             payload = protocol.build_payload(self.model, prompt)
-            headers = {**protocol.build_headers(api_key), **_expanded_headers(self.headers)}
+            headers = _auth_headers(protocol.build_headers(api_key), api_key, self.api_key_header, self.api_key_prefix)
+            headers = {**headers, **_expanded_headers(self.headers)}
             response = self._post(self.base_url + protocol.ENDPOINT, payload, headers, request.deadline_seconds or 120)
             text = protocol.extract_text(response)
         except (urllib.error.URLError, KeyError, json.JSONDecodeError, TimeoutError, ValueError) as exc:
@@ -90,6 +93,16 @@ class LlmApiProvider:
 
 
 _ENV_PATTERN = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
+
+
+def _auth_headers(headers: dict[str, str], api_key: str, api_key_header: str, api_key_prefix: str) -> dict[str, str]:
+    if not api_key_header:
+        return headers
+    out = dict(headers)
+    out.pop("Authorization", None)
+    out.pop("x-api-key", None)
+    out[api_key_header] = f"{api_key_prefix}{api_key}"
+    return out
 
 
 def _expanded_headers(headers: dict[str, str]) -> dict[str, str]:

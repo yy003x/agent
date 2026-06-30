@@ -45,48 +45,19 @@ def chat_url(base_url: str, provider: str | None = None) -> str:
 
 
 def default_model_configs() -> list[dict[str, Any]]:
-    dashscope_url = chat_url(
-        os.getenv("DASHSCOPE_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1"),
-        "aliyun",
-    )
-    zhipu_url = chat_url(
-        os.getenv("ZHIPUAI_BASE_URL", "https://open.bigmodel.cn/api/paas/v4/chat/completions"),
-        "zhipu",
-    )
-    openrouter_url = chat_url(os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api"), "openrouter")
+    openrouter_url = chat_url(os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"), "openrouter")
     openrouter_title = os.getenv("OPENROUTER_TITLE", "agent-model-test")
     return [
-        {
-            "name": os.getenv("ALIYUN_QWEN_NAME_1", "aliyun-qwen-1"),
-            "provider": "aliyun",
-            "url": dashscope_url,
-            "api_key_env": "DASHSCOPE_API_KEY",
-            "model": os.getenv("ALIYUN_QWEN_MODEL_1", "qwen-plus"),
-        },
-        {
-            "name": os.getenv("ALIYUN_QWEN_NAME_2", "aliyun-qwen-2"),
-            "provider": "aliyun",
-            "url": dashscope_url,
-            "api_key_env": "DASHSCOPE_API_KEY",
-            "model": os.getenv("ALIYUN_QWEN_MODEL_2", "qwen-vl-max"),
-        },
         {
             "name": os.getenv("OPENROUTER_NAME", "openrouter"),
             "provider": "openrouter",
             "url": openrouter_url,
             "api_key_env": "OPENROUTER_API_KEY",
-            "model": os.getenv("OPENROUTER_MODEL", "openai/gpt-4o-mini"),
+            "model": os.getenv("OPENROUTER_MODEL", "z-ai/glm-5.1"),
             "headers": {
                 "HTTP-Referer": "${OPENROUTER_HTTP_REFERER}",
                 "X-OpenRouter-Title": openrouter_title,
             },
-        },
-        {
-            "name": os.getenv("ZHIPUAI_NAME", "zhipu-glm"),
-            "provider": "zhipu",
-            "url": zhipu_url,
-            "api_key_env": "ZHIPUAI_API_KEY",
-            "model": os.getenv("ZHIPUAI_MODEL", "glm-4-flash"),
         },
     ]
 
@@ -215,7 +186,7 @@ def run_one(config: dict[str, Any], messages: list[dict[str, str]], timeout: flo
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="批量测试阿里云 Qwen / OpenRouter / 智谱模型")
+    parser = argparse.ArgumentParser(description="测试 OpenRouter 模型后端")
     parser.add_argument("source", nargs="?", help="可选：要总结的本地文本文件")
     parser.add_argument("--config", default=os.getenv("MODEL_TEST_CONFIG", str(DEFAULT_CONFIG)))
     parser.add_argument("--prompt", default=os.getenv("MODEL_TEST_PROMPT"))

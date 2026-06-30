@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import os
+import re
 import signal
 import subprocess
 import threading
@@ -133,12 +134,19 @@ def _runtime_env(request: RunRequest, paths: RunPaths, raw: dict[str, Any] | Non
     raw = raw or {}
     static_env = raw.get("env")
     if isinstance(static_env, dict):
-        env.update({str(k): str(v) for k, v in static_env.items()})
+        env.update({str(k): _expand_env_value(str(v)) for k, v in static_env.items()})
     for name in raw.get("env_passthrough") or raw.get("env_allowlist") or []:
         key = str(name)
         if key in os.environ:
             env[key] = os.environ[key]
     return env
+
+
+_ENV_PATTERN = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
+
+
+def _expand_env_value(value: str) -> str:
+    return _ENV_PATTERN.sub(lambda match: os.environ.get(match.group(1), ""), value)
 
 
 class _StreamLog:

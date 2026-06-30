@@ -396,15 +396,16 @@ class TmuxReadyGateTest(unittest.TestCase):
             profile = _profile(
                 "codex",
                 session,
-                env={"AGENTRUN_TMUX_STATIC": "static"},
+                env={"AGENTRUN_TMUX_STATIC": "${AGENTRUN_TMUX_SOURCE}"},
                 env_passthrough=["AGENTRUN_TMUX_PASS"],
             )
             provider = TmuxProvider(profile)
-            with patch.dict("os.environ", {"AGENTRUN_TMUX_PASS": "pass"}, clear=False):
+            with patch.dict("os.environ", {"AGENTRUN_TMUX_SOURCE": "static", "AGENTRUN_TMUX_PASS": "pass"}, clear=False):
                 command = provider._write_command_sh(paths, req, paths.run_dir / "done", None)
             text = command.read_text(encoding="utf-8")
-            self.assertIn("AGENTRUN_TMUX_STATIC=static", text)
-            self.assertIn("AGENTRUN_TMUX_PASS=pass", text)
+            self.assertIn("export AGENTRUN_TMUX_STATIC=static", text)
+            self.assertIn("export AGENTRUN_TMUX_PASS=pass", text)
+            self.assertIn("exec codex", text)
 
     def test_ready_gate_uses_idle_metrics_not_codex_banner(self) -> None:
         with tempfile.TemporaryDirectory() as t:

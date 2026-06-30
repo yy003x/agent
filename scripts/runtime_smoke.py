@@ -21,7 +21,7 @@ RUNTIMES = ("tmux", "cli", "api")
 DEFAULT_PROFILES = {
     "tmux": "tmux-codex",
     "cli": "codex-cli",
-    "api": "api-openai-gpt-4o-mini",
+    "api": "api-openrouter-openai-glm-5.1",
 }
 DEFAULT_TMUX_WAIT_SECONDS = 0
 

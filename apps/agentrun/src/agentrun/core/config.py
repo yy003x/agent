@@ -184,6 +184,8 @@ class ConfigManager:
                     ("model", "model"),
                     ("api_key_env", "api_key_env"),
                     ("key_env", "api_key_env"),
+                    ("api_key_header", "api_key_header"),
+                    ("api_key_prefix", "api_key_prefix"),
                     ("headers", "headers"),
                     ("timeout_seconds", "timeout_seconds"),
                     ("result_contract", "result_contract"),

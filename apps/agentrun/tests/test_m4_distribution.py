@@ -62,7 +62,8 @@ class OpenBoxTest(unittest.TestCase):
             self.assertTrue(doc["ok"])
             self.assertEqual(doc["default_profile"], "codex-cli")
             self.assertIn("codex-cli", ids)
-            self.assertIn("api-openai-gpt-4o-mini", ids)
+            self.assertIn("api-openrouter-openai-glm-5.1", ids)
+            self.assertIn("api-openrouter-anthropic-glm-5.1", ids)
             self.assertIn("tmux-codex", ids)
 
     def test_caller_conf_dir_override_changes_fixed_cli_profile(self) -> None:
@@ -73,7 +74,7 @@ class OpenBoxTest(unittest.TestCase):
             ids = {p["id"] for p in rt.profiles()}
             self.assertIn("my-cli", ids)
             self.assertIn("claude-cli", ids)
-            self.assertIn("api-openai-gpt-4o-mini", ids)
+            self.assertIn("api-openrouter-openai-glm-5.1", ids)
 
     def test_project_overlay_default_profile(self) -> None:
         with tempfile.TemporaryDirectory() as d:

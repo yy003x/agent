@@ -106,11 +106,11 @@ class CodeCliTest(unittest.TestCase):
             profile = _profile(
                 str(script),
                 raw={
-                    "env": {"AGENTRUN_TEST_STATIC": "static"},
+                    "env": {"AGENTRUN_TEST_STATIC": "${AGENTRUN_TEST_SOURCE}"},
                     "env_passthrough": ["AGENTRUN_TEST_PASS"],
                 },
             )
-            with patch.dict(os.environ, {"AGENTRUN_TEST_PASS": "pass"}, clear=False):
+            with patch.dict(os.environ, {"AGENTRUN_TEST_SOURCE": "static", "AGENTRUN_TEST_PASS": "pass"}, clear=False):
                 out = CodeCliProvider(profile).run(_request(d, paths), paths)
             self.assertEqual(out["status"]["state"], "done")
             self.assertEqual(out["result"]["summary"], "static/pass")

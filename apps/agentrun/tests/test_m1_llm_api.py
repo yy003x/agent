@@ -43,7 +43,10 @@ class _Handler(BaseHTTPRequestHandler):
         length = int(self.headers.get("Content-Length", "0") or 0)
         body = self.rfile.read(length).decode("utf-8")
         self.seen.append({"path": self.path, "headers": dict(self.headers), "body": json.loads(body)})
-        payload = {"choices": [{"message": {"content": "ok from stub"}}]}
+        if self.path == "/messages":
+            payload = {"content": [{"text": "ok from stub"}]}
+        else:
+            payload = {"choices": [{"message": {"content": "ok from stub"}}]}
         data = json.dumps(payload).encode("utf-8")
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
@@ -126,6 +129,20 @@ class LlmApiProviderTest(unittest.TestCase):
             self.assertEqual(out["status"]["state"], "done")
             self.assertNotIn("X-Optional", seen[0]["headers"])
             self.assertEqual(seen[0]["headers"]["X-Set"], "super-secret-value")
+
+    def test_anthropic_auth_header_can_use_bearer(self) -> None:
+        with _server() as (base_url, seen), tempfile.TemporaryDirectory() as t:
+            profile = _profile(
+                base_url,
+                protocol="anthropic",
+                api_key_header="Authorization",
+                api_key_prefix="Bearer ",
+            )
+            out, _ = self._run(profile, t)
+            self.assertEqual(out["status"]["state"], "done")
+            self.assertEqual(seen[0]["path"], "/messages")
+            self.assertEqual(seen[0]["headers"]["Authorization"], "Bearer super-secret-value")
+            self.assertNotIn("x-api-key", seen[0]["headers"])
 
 
 if __name__ == "__main__":

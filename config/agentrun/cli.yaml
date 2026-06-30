@@ -3,9 +3,30 @@ codex:
   args: [exec]
   timeout_seconds: 300
   result_contract: required
+  env:
+    OPENAI_API_KEY: ${OPENROUTER_API_KEY}
+    OPENAI_BASE_URL: https://openrouter.ai/api/v1
+    OPENAI_MODEL: z-ai/glm-5.1
+    OPENROUTER_BASE_URL: https://openrouter.ai/api/v1
+    OPENROUTER_MODEL: z-ai/glm-5.1
+  env_passthrough:
+    - OPENROUTER_API_KEY
+    - OPENROUTER_HTTP_REFERER
+    - OPENROUTER_TITLE
 
 claude:
   command: claude
   args: ["-p"]
   timeout_seconds: 300
   result_contract: required
+  env:
+    ANTHROPIC_API_KEY: ""
+    ANTHROPIC_AUTH_TOKEN: ${OPENROUTER_API_KEY}
+    ANTHROPIC_BASE_URL: https://openrouter.ai/api
+    ANTHROPIC_MODEL: z-ai/glm-5.1
+    OPENROUTER_BASE_URL: https://openrouter.ai/api/v1
+    OPENROUTER_MODEL: z-ai/glm-5.1
+  env_passthrough:
+    - OPENROUTER_API_KEY
+    - OPENROUTER_HTTP_REFERER
+    - OPENROUTER_TITLE
