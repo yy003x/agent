@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 直接用 tmux 启动 CLI runtime，并投递一句项目总结请求。
+# 模拟 AgentRun:后台启动 tmux CLI runtime，投递 prompt，并在当前终端监控输出。
 
 set -euo pipefail
 
@@ -9,7 +9,9 @@ SESSION="${AGENTRUN_TMUX_SESSION:-agent-project-summary}"
 WINDOW="${AGENTRUN_TMUX_WINDOW:-summary-$(date +%Y%m%d-%H%M%S)}"
 PROMPT="看下当前项目实现了什么"
 COMMAND="${AGENTRUN_TMUX_COMMAND:-}"
-ATTACH=1
+MONITOR=1
+MONITOR_SECONDS="${AGENTRUN_TMUX_MONITOR_SECONDS:-0}"
+ATTACH=0
 DRY_RUN=0
 
 usage() {
@@ -18,20 +20,23 @@ usage() {
   scripts/tmux_project_summary.sh
   scripts/tmux_project_summary.sh "看下当前项目实现了什么"
   scripts/tmux_project_summary.sh --profile tmux-claude "看下当前项目实现了什么"
-  scripts/tmux_project_summary.sh --no-attach
+  scripts/tmux_project_summary.sh --no-monitor
+  scripts/tmux_project_summary.sh --monitor-seconds 30
+  scripts/tmux_project_summary.sh --attach
   scripts/tmux_project_summary.sh --dry-run
 
 默认行为：
-  1. 启动 tmux session/window
+  1. 后台启动 tmux session/window
   2. 在窗口里运行 codex
   3. 输入“看下当前项目实现了什么”
-  4. attach 到当前终端，让你直接看到 tmux 会话
+  4. 当前脚本实时监控 tmux 输出；按 Ctrl-C 只停止监控，不杀 tmux
 
 环境变量：
-  AGENTRUN_TMUX_PROFILE   默认 tmux-codex；tmux-claude 会运行 claude
-  AGENTRUN_TMUX_COMMAND   覆盖实际命令，例如 codex 或 claude
-  AGENTRUN_TMUX_SESSION   默认 agent-project-summary
-  AGENTRUN_TMUX_WINDOW    默认 summary-<timestamp>
+  AGENTRUN_TMUX_PROFILE          默认 tmux-codex；tmux-claude 会运行 claude
+  AGENTRUN_TMUX_COMMAND          覆盖实际命令，例如 codex 或 claude
+  AGENTRUN_TMUX_SESSION          默认 agent-project-summary；不能是纯数字
+  AGENTRUN_TMUX_WINDOW           默认 summary-<timestamp>
+  AGENTRUN_TMUX_MONITOR_SECONDS  默认 0，表示持续监控直到 Ctrl-C 或 pane 退出
 EOF
 }
 
@@ -45,12 +50,21 @@ while [ "$#" -gt 0 ]; do
       DRY_RUN=1
       shift
       ;;
-    --no-attach)
-      ATTACH=0
+    --no-monitor)
+      MONITOR=0
       shift
+      ;;
+    --monitor)
+      MONITOR=1
+      shift
+      ;;
+    --monitor-seconds)
+      MONITOR_SECONDS="${2:?--monitor-seconds 需要秒数}"
+      shift 2
       ;;
     --attach)
       ATTACH=1
+      MONITOR=0
       shift
       ;;
     --profile)
@@ -93,12 +107,77 @@ if [ -z "$COMMAND" ]; then
   esac
 fi
 
+validate_tmux_name() {
+  local kind="$1"
+  local value="$2"
+  if [ -z "$value" ]; then
+    echo "$kind 不能为空。" >&2
+    exit 2
+  fi
+  if [[ "$value" == *:* ]]; then
+    echo "$kind 不能包含冒号：$value" >&2
+    exit 2
+  fi
+  if [[ "$value" =~ ^[0-9]+$ ]]; then
+    echo "$kind 不能是纯数字：$value" >&2
+    exit 2
+  fi
+}
+
+pane_exists() {
+  tmux list-panes -a -F '#{pane_id}' 2>/dev/null | grep -Fxq "$1"
+}
+
+monitor_output() {
+  local pane_id="$1"
+  local log_file="$2"
+  local started="$SECONDS"
+  local tail_pid
+
+  touch "$log_file"
+  echo ""
+  echo "开始监控 tmux 输出。按 Ctrl-C 只停止监控，tmux 会话继续在后台运行。"
+  echo "log_file: $log_file"
+  echo ""
+
+  tail -n +1 -f "$log_file" &
+  tail_pid="$!"
+  trap 'kill "$tail_pid" 2>/dev/null || true; echo; echo "已停止监控，tmux 会话仍在后台。"; exit 130' INT TERM
+
+  while pane_exists "$pane_id"; do
+    if [ "$MONITOR_SECONDS" != "0" ] && [ $((SECONDS - started)) -ge "$MONITOR_SECONDS" ]; then
+      break
+    fi
+    sleep 1
+  done
+
+  kill "$tail_pid" 2>/dev/null || true
+  wait "$tail_pid" 2>/dev/null || true
+  trap - INT TERM
+
+  if pane_exists "$pane_id"; then
+    echo ""
+    echo "监控结束，tmux pane 仍在后台运行：$pane_id"
+  else
+    echo ""
+    echo "tmux pane 已退出：$pane_id"
+  fi
+}
+
+validate_tmux_name "tmux session 名" "$SESSION"
+validate_tmux_name "tmux window 名" "$WINDOW"
+
+RUN_DIR="$ROOT_DIR/runs/tmux-project-summary/${SESSION}-${WINDOW}"
+LOG_FILE="$RUN_DIR/output.log"
+
 echo "tmux_session: $SESSION"
 echo "tmux_window: $WINDOW"
 echo "profile: $PROFILE"
 echo "command: $COMMAND"
 echo "cwd: $ROOT_DIR"
 echo "prompt: $PROMPT"
+echo "monitor: $MONITOR"
+echo "monitor_seconds: $MONITOR_SECONDS"
 
 if [ "$DRY_RUN" -eq 1 ]; then
   cat <<EOF
@@ -106,8 +185,9 @@ if [ "$DRY_RUN" -eq 1 ]; then
 dry-run，不会启动 tmux。
 实际执行会运行：
   tmux new-session/new-window -d -s "$SESSION" -n "$WINDOW" -c "$ROOT_DIR" "$COMMAND"
+  tmux pipe-pane ... "$LOG_FILE"
   tmux paste-buffer ... "$PROMPT"
-  tmux attach -t "$SESSION"
+  tail -f "$LOG_FILE"
 EOF
   exit 0
 fi
@@ -122,6 +202,9 @@ if ! command -v "$COMMAND" >/dev/null 2>&1; then
   exit 1
 fi
 
+mkdir -p "$RUN_DIR"
+: >"$LOG_FILE"
+
 if tmux has-session -t "$SESSION" 2>/dev/null; then
   pane_id="$(tmux new-window -d -t "$SESSION" -n "$WINDOW" -P -F '#{pane_id}' -c "$ROOT_DIR" "$COMMAND")"
 else
@@ -133,15 +216,17 @@ if [ -z "$pane_id" ]; then
   exit 1
 fi
 
+tmux pipe-pane -o -t "$pane_id" "cat >> '$LOG_FILE'"
+
 deadline=$((SECONDS + 20))
 while [ "$SECONDS" -lt "$deadline" ]; do
-  if tmux list-panes -a -F '#{pane_id}' 2>/dev/null | grep -Fxq "$pane_id"; then
+  if pane_exists "$pane_id"; then
     break
   fi
   sleep 0.2
 done
 
-if ! tmux list-panes -a -F '#{pane_id}' 2>/dev/null | grep -Fxq "$pane_id"; then
+if ! pane_exists "$pane_id"; then
   echo "tmux pane 已退出，无法投递 prompt：$pane_id" >&2
   exit 1
 fi
@@ -155,8 +240,9 @@ tmux send-keys -t "$pane_id" C-m
 
 cat <<EOF
 
-已投递到 tmux。
+已投递到后台 tmux。
 pane_id: $pane_id
+log_file: $LOG_FILE
 
 查看窗口：
   tmux attach -t "$SESSION"
@@ -171,4 +257,6 @@ if [ "$ATTACH" -eq 1 ]; then
   else
     tmux attach -t "$SESSION"
   fi
+elif [ "$MONITOR" -eq 1 ]; then
+  monitor_output "$pane_id" "$LOG_FILE"
 fi
